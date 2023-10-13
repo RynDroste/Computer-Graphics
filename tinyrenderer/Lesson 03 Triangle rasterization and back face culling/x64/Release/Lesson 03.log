@@ -1,0 +1,30 @@
+﻿  main.cpp
+C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\main.cpp(28,15): warning C4244: “初始化”: 从“double”转换到“int”，可能丢失数据
+C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\main.cpp(85,72): warning C4244: “参数”: 从“double”转换到“t”，可能丢失数据
+          with
+          [
+              t=int
+          ]
+C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\main.cpp(85,52): warning C4244: “参数”: 从“double”转换到“t”，可能丢失数据
+          with
+          [
+              t=int
+          ]
+C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\main.cpp(96,131): warning C4244: “参数”: 从“float”转换到“unsigned char”，可能丢失数据
+C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\main.cpp(96,116): warning C4244: “参数”: 从“float”转换到“unsigned char”，可能丢失数据
+C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\main.cpp(96,101): warning C4244: “参数”: 从“float”转换到“unsigned char”，可能丢失数据
+C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\geometry.h(18,75): warning C4244: “参数”: 从“float”转换到“t”，可能丢失数据
+          with
+          [
+              t=int
+          ]
+C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\geometry.h(18,17): message : 在编译 类 模板 成员函数“Vec2<int> Vec2<int>::operator *(float) const”时
+C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\main.cpp(54,36): message : 请参阅 "triangle" 中对 "Vec2<int>::operator *" 的第一个引用
+C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\main.cpp(15,6): message : 查看对正在编译的 类 模板 实例化“Vec2<int>”的引用
+C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\geometry.h(18,70): warning C4244: “参数”: 从“float”转换到“t”，可能丢失数据
+          with
+          [
+              t=int
+          ]
+LINK : warning LNK4075: 忽略“/INCREMENTAL”(由于“/OPT:ICF”规范)
+  Lesson 03.vcxproj -> C:\Users\kisso\Desktop\tinyrenderer\03绘制三角形+平面着色\x64\Release\Lesson 03.exe

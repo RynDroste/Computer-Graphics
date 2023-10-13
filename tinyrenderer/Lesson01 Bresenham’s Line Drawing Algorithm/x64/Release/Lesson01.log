@@ -1,6 +1,0 @@
-﻿  main.cpp
-C:\Users\kisso\Desktop\tinyrenderer\01画线\main.cpp(24,16): warning C4244: “=”: 从“double”转换到“float”，可能丢失数据
-C:\Users\kisso\Desktop\tinyrenderer\01画线\main.cpp(34,29): warning C4244: “=”: 从“double”转换到“float”，可能丢失数据
-C:\Users\kisso\Desktop\tinyrenderer\01画线\main.cpp(39,20): warning C4244: “=”: 从“double”转换到“float”，可能丢失数据
-LINK : warning LNK4075: 忽略“/INCREMENTAL”(由于“/OPT:ICF”规范)
-  Lesson01.vcxproj -> C:\Users\kisso\Desktop\tinyrenderer\01画线\x64\Release\Lesson01.exe

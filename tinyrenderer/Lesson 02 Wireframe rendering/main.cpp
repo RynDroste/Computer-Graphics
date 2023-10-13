@@ -1,38 +1,38 @@
 #include <vector>
 #include <cmath>
-#include "tgaimage.h"   //tga»­Í¼¿â
-#include "model.h"      //Ä£ĞÍÀà£¬Ö÷ÒªÊµÏÖÄ£ĞÍµÄ¶ÁÈ¡
-#include "geometry.h"   //¼¸ºÎ¿â£¬Ö÷Òª¶¨ÒåÁËVec2ºÍVec3ÀàĞÍ
+#include "tgaimage.h"   //tgaç”»å›¾åº“
+#include "model.h"      //æ¨¡å‹ç±»ï¼Œä¸»è¦å®ç°æ¨¡å‹çš„è¯»å–
+#include "geometry.h"   //å‡ ä½•åº“ï¼Œä¸»è¦å®šä¹‰äº†Vec2å’ŒVec3ç±»å‹
 
-//¶¨ÒåÑÕÉ«
+//å®šä¹‰é¢œè‰²
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor red   = TGAColor(255, 0,   0,   255);
 Model *model = NULL;
-//¶¨Òå¿í¶È¸ß¶È
+//å®šä¹‰å®½åº¦é«˜åº¦
 const int width  = 800;
 const int height = 800;
 
-//»­ÏßËã·¨(×ø±ê1£¬×ø±ê2£¬tgaÄ¿±êÖ¸Õë£¬Ö¸¶¨ÑÕÉ«)
+//ç”»çº¿ç®—æ³•(åæ ‡1ï¼Œåæ ‡2ï¼Œtgaç›®æ ‡æŒ‡é’ˆï¼ŒæŒ‡å®šé¢œè‰²)
 void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color) {
-    //ÅĞ¶ÏÏß¶ÎĞ±ÂÊµÄ¾ø¶ÔÖµÊÇ·ñ´óÓÚ1
+    //åˆ¤æ–­çº¿æ®µæ–œç‡çš„ç»å¯¹å€¼æ˜¯å¦å¤§äº1
     bool steep = false;
-    //´óÓÚ1ÖÃÎªtrue£¬½»»»×ø±ê¸÷×ÔµÄxºÍy¡£¼´±ä»»Îª¹ØÓÚy=x»òy=-x¶Ô³ÆµÄµã
+    //å¤§äº1ç½®ä¸ºtrueï¼Œäº¤æ¢åæ ‡å„è‡ªçš„xå’Œyã€‚å³å˜æ¢ä¸ºå…³äºy=xæˆ–y=-xå¯¹ç§°çš„ç‚¹
     if (std::abs(x0-x1)<std::abs(y0-y1)) {
         std::swap(x0, y0);
         std::swap(x1, y1);
         steep = true;
     }
-    //±£Ö¤×ø±ê2µÄx,y´óÓÚ×ø±ê1µÄx,y¡£
+    //ä¿è¯åæ ‡2çš„x,yå¤§äºåæ ‡1çš„x,yã€‚
     if (x0>x1) {
         std::swap(x0, x1);
         std::swap(y0, y1);
     }
-    //´ËÊ±x1´óÓÚx0£¬ÇÒĞ±ÂÊÔÚ-1µ½1Ö®¼ä£¬ÓÃx×öÑ­»·¿ØÖÆ±äÁ¿
+    //æ­¤æ—¶x1å¤§äºx0ï¼Œä¸”æ–œç‡åœ¨-1åˆ°1ä¹‹é—´ï¼Œç”¨xåšå¾ªç¯æ§åˆ¶å˜é‡
     for (int x=x0; x<=x1; x++) {
-        //¸ù¾İx¼ÆËãÏß¶Î¶ÔÓ¦µÄy
+        //æ ¹æ®xè®¡ç®—çº¿æ®µå¯¹åº”çš„y
         float t = (x-x0)/(float)(x1-x0);
         int y = y0*(1.-t) + y1*t;
-        //ÈôĞ±ÂÊ´óÓÚ1£¬ÕæÊµ×ø±êÎª(y,x)£»·ñÔòÎª(x,y)
+        //è‹¥æ–œç‡å¤§äº1ï¼ŒçœŸå®åæ ‡ä¸º(y,x)ï¼›å¦åˆ™ä¸º(x,y)
         if (steep) {
             image.set(y, x, color);
         } else {
@@ -42,37 +42,37 @@ void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color) {
 }
 
 int main(int argc, char** argv) {
-    //ÃüÁîĞĞ¿ØÖÆ·½Ê½ºÍ´úÂë·½Ê½¹¹Ôìmodel
-    //¹¹ÔìÄ£ĞÍ(objÎÄ¼şÂ·¾¶)
+    //å‘½ä»¤è¡Œæ§åˆ¶æ–¹å¼å’Œä»£ç æ–¹å¼æ„é€ model
+    //æ„é€ æ¨¡å‹(objæ–‡ä»¶è·¯å¾„)
     if (2==argc) {
         model = new Model(argv[1]);
     } else {
         model = new Model("obj/african_head.obj");
     }
-    //¹¹Ôìtga(¿í£¬¸ß£¬Ö¸¶¨ÑÕÉ«¿Õ¼ä)
+    //æ„é€ tga(å®½ï¼Œé«˜ï¼ŒæŒ‡å®šé¢œè‰²ç©ºé—´)
     TGAImage image(width, height, TGAImage::RGB);
-    //Ä£ĞÍµÄÃæ×÷ÎªÑ­»·¿ØÖÆ±äÁ¿
+    //æ¨¡å‹çš„é¢ä½œä¸ºå¾ªç¯æ§åˆ¶å˜é‡
     for (int i=0; i<model->nfaces(); i++) {
-        //´´½¨faceÊı×éÓÃÓÚ±£´æÒ»¸öfaceµÄÈı¸ö¶¥µã×ø±ê
+        //åˆ›å»ºfaceæ•°ç»„ç”¨äºä¿å­˜ä¸€ä¸ªfaceçš„ä¸‰ä¸ªé¡¶ç‚¹åæ ‡
         std::vector<int> face = model->face(i);
         for (int j=0; j<3; j++) {
-            //¶¥µãv0
+            //é¡¶ç‚¹v0
             Vec3f v0 = model->vert(face[j]);
-            //¶¥µãv1
+            //é¡¶ç‚¹v1
             Vec3f v1 = model->vert(face[(j+1)%3]);
-            //¸ù¾İ¶¥µãv0ºÍv1»­Ïß
-            //ÏÈÒª½øĞĞÄ£ĞÍ×ø±êµ½ÆÁÄ»×ø±êµÄ×ª»»
-            //(-1,-1)¶ÔÓ¦(0,0)   (1,1)¶ÔÓ¦(width,height)
+            //æ ¹æ®é¡¶ç‚¹v0å’Œv1ç”»çº¿
+            //å…ˆè¦è¿›è¡Œæ¨¡å‹åæ ‡åˆ°å±å¹•åæ ‡çš„è½¬æ¢
+            //(-1,-1)å¯¹åº”(0,0)   (1,1)å¯¹åº”(width,height)
             int x0 = (v0.x+1.)*width/2.;
             int y0 = (v0.y+1.)*height/2.;
             int x1 = (v1.x+1.)*width/2.;
             int y1 = (v1.y+1.)*height/2.;
-            //»­Ïß
+            //ç”»çº¿
             line(x0,y0, x1,y1, image, white);
         }
     }
 
-    //tgaÄ¬ÈÏÔ­µãÔÚ×óÉÏ½Ç£¬ÏÖĞèÒªÖ¸¶¨Îª×óÏÂ½Ç£¬ËùÒÔ½øĞĞÊúÖ±·­×ª
+    //tgaé»˜è®¤åŸç‚¹åœ¨å·¦ä¸Šè§’ï¼Œç°éœ€è¦æŒ‡å®šä¸ºå·¦ä¸‹è§’ï¼Œæ‰€ä»¥è¿›è¡Œç«–ç›´ç¿»è½¬
     image.flip_vertically();
     image.write_tga_file("output.tga");
     delete model;

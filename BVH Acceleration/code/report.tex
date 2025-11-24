@@ -1,0 +1,110 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\title{BVH Acceleration Implementation Report}
+\author{Xuanlin Chen \\ Work E-mail: chenxu@usi.ch \\ Personal E-mail: kissofazshara@gmail.com}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+This report describes the implementation of a Hierarchical Linear Bounding Volume Hierarchy (HLBVH) acceleration structure for a ray tracer. This method is introduced in the online PBR-book in the task materials.
+
+\section{Implementation Description}
+
+\subsection{BVH Structure}
+
+The BVH (Bounding Volume Hierarchy) is implemented as a binary tree where each node contains a bounding box that encompasses all primitives in its subtree. The implementation includes:
+
+\begin{itemize}
+    \item \textbf{Bounds3}: A 3D axis-aligned bounding box structure with intersection testing
+    \item \textbf{BVHBuildNode}: Tree nodes used during construction
+    \item \textbf{LinearBVHNode}: Flattened, cache-friendly representation for traversal
+    \item \textbf{BVHAccel}: Main accelerator class that builds and traverses the BVH
+\end{itemize}
+
+\subsection{HLBVH Construction Algorithm}
+
+The implementation uses a simplified HLBVH construction method:
+
+\begin{enumerate}
+    \item Compute bounding boxes for all primitives
+    \item Recursively partition primitives using middle-split along the axis with maximum extent
+    \item Build binary tree structure with bounding boxes at each node
+    \item Flatten the tree into a linear array for efficient traversal
+\end{enumerate}
+
+The partitioning strategy selects the dimension with the largest extent of the centroid bounding box and splits primitives at the middle point along that axis.
+
+\section{Performance Results}
+
+Performance testing was conducted with different mesh configurations to demonstrate the sub-linear scaling behavior of the BVH acceleration structure.
+
+\subsection{Timing Results}
+
+The performance data shows the following results:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|r|r|}
+\hline
+\textbf{Configuration} & \textbf{Triangles} & \textbf{Time (s)} \\
+\hline
+bunny\_small & 1,392 & 2.287 \\
+armadillo\_small & 3,112 & 2.576 \\
+lucy\_small & 2,804 & 2.597 \\
+bunny & 69,451 & 2.352 \\
+armadillo & 345,944 & 2.822 \\
+lucy & 2,805,572 & 3.009 \\
+\hline
+\end{tabular}
+\caption{Performance timing results for different mesh configurations at 1280$\times$720 resolution}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.9\textwidth]{bvh_performance.png}
+\caption{Performance plot showing sub-linear relationship between triangle count and rendering time}
+\label{fig:performance}
+\end{figure}
+
+\subsection{Performance Analysis}
+
+The performance plot (Figure~\ref{fig:performance}) demonstrates sub-linear scaling. The tests were conducted at 1280$\times$720 resolution, rendering all pixels for each configuration. The relationship between triangle count and rendering time follows:
+
+\[
+\text{Time} \propto \text{Triangles}^{\alpha}, \quad \alpha < 1.0
+\]
+
+\section{Conclusion \& Problem}
+
+\subsection{Conclusion}
+
+The project renders at the original resolution of 2048$\times$1536 pixels. At this resolution, rendering the complete scene with all three meshes takes approximately nearly 40 seconds on the test system. Although it accelerate the rendering, while it still has a gap to the task target of 10 seconds.
+
+\subsection{Problem and Analysis}
+
+An interesting observation from the performance data is that the bunny mesh with 69,451 triangles renders faster (2.352 seconds) than both the armadillo\_small mesh with 3,112 triangles (2.576 seconds) and the lucy\_small mesh with 2,804 triangles (2.597 seconds). This counter-intuitive result is puzzling, as one would expect that more triangles would require more rendering time. This phenomenon is likely related to the internal geometric structure of the models.
+
+\section{References}
+
+The implementation is based on the following references:
+
+\begin{enumerate}
+    \item Pharr, M., Jakob, W., \& Humphreys, G. (2018). \textit{Physically Based Rendering: From Theory to Implementation} (3rd ed.). Bounding Volume Hierarchies. Retrieved from \url{https://pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration/Bounding_Volume_Hierarchies\#BVHAccel}
+    
+    \item pbrt-v3: Physically Based Rendering. GitHub repository. Retrieved from \url{https://github.com/mmp/pbrt-v3}
+\end{enumerate}
+
+\end{document}
+

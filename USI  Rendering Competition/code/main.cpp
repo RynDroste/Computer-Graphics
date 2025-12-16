@@ -164,6 +164,83 @@ public:
     }
 };
 
+class Cylinder : public Object {
+private:
+    glm::vec3 center;      // 圆柱体中心点
+    glm::vec3 axis;         // 高度轴方向（已归一化）
+    float radius;           // 半径
+    float halfHeight;       // 半高（高度的一半）
+
+public:
+    Cylinder(const glm::vec3 &center, const glm::vec3 &axis, float radius, float height) 
+        : center(center), axis(glm::normalize(axis)), radius(radius), halfHeight(height * 0.5f) {
+    }
+    
+    Cylinder(const glm::vec3 &center, const glm::vec3 &axis, float radius, float height, const Material &mat) 
+        : center(center), axis(glm::normalize(axis)), radius(radius), halfHeight(height * 0.5f) {
+        material = mat;
+    }
+
+    Hit intersect(Ray ray) {
+        Hit hit;
+        hit.hit = false;
+        
+        // 将射线转换到圆柱体局部坐标系
+        glm::vec3 oc = ray.origin - center;
+        
+        // 计算射线方向在轴上的投影
+        float rayAxisDot = glm::dot(ray.direction, axis);
+        float ocAxisDot = glm::dot(oc, axis);
+        
+        // 计算垂直于轴的平面上的分量
+        glm::vec3 rayPerp = ray.direction - rayAxisDot * axis;
+        glm::vec3 ocPerp = oc - ocAxisDot * axis;
+        
+        // 二次方程系数：a*t^2 + b*t + c = 0
+        float a = glm::dot(rayPerp, rayPerp);
+        float b = 2.0f * glm::dot(rayPerp, ocPerp);
+        float c = glm::dot(ocPerp, ocPerp) - radius * radius;
+        
+        float discriminant = b * b - 4.0f * a * c;
+        if (discriminant < 0.0f || a < 1e-6f) return hit;
+        
+        float sqrtD = sqrtf(discriminant);
+        float t1 = (-b - sqrtD) / (2.0f * a);
+        float t2 = (-b + sqrtD) / (2.0f * a);
+        
+        // 检查两个交点
+        float t = (t1 > 0.0f && t1 < ray.tMax) ? t1 : t2;
+        if (t <= 0.0f || t > ray.tMax) return hit;
+        
+        glm::vec3 intersection = ray.origin + t * ray.direction;
+        glm::vec3 toIntersection = intersection - center;
+        float projOnAxis = glm::dot(toIntersection, axis);
+        
+        // 检查交点是否在圆柱体的高度范围内
+        if (fabs(projOnAxis) > halfHeight) return hit;
+        
+        // 计算法向量（从轴到交点的方向）
+        glm::vec3 normal = toIntersection - projOnAxis * axis;
+        float normalLen = glm::length(normal);
+        if (normalLen > 1e-6f) {
+            normal = normal / normalLen;
+        } else {
+            // 如果交点在轴上（理论上不应该发生），使用垂直方向
+            glm::vec3 up(0, 1, 0);
+            if (fabs(glm::dot(axis, up)) > 0.9f) up = glm::vec3(1, 0, 0);
+            normal = glm::normalize(glm::cross(axis, up));
+        }
+        
+        hit.hit = true;
+        hit.distance = t;
+        hit.intersection = intersection;
+        hit.normal = normal;
+        hit.object = this;
+        
+        return hit;
+    }
+};
+
 static void loadOBJ(const std::string &path,
                     std::vector<glm::vec3> &out_vertices,
                     std::vector<glm::ivec3> &out_faces){
@@ -464,6 +541,96 @@ vector<Light *> lights; ///< A list of lights in the scene
 glm::vec3 ambient_light(0.001,0.001,0.001);
 vector<Object *> objects; ///< A list of all objects in the scene
 
+/**
+ * 烟雾体积结构
+ */
+struct SmokeVolume {
+    glm::vec3 position;      // 烟雾中心位置
+    glm::vec3 size;          // 烟雾体积大小（椭球）
+    float density;           // 最大密度
+    float age;               // 烟雾年龄（用于动画）
+};
+
+vector<SmokeVolume> smokeVolumes; ///< 烟雾体积列表
+
+
+/**
+ * 计算烟雾密度（使用椭球距离场）
+ * @param pos 世界空间位置
+ * @param smoke 烟雾体积
+ * @return 密度值 [0, 1]
+ */
+float getSmokeDensity(glm::vec3 pos, const SmokeVolume& smoke) {
+    // 转换到烟雾局部空间（椭球）
+    glm::vec3 localPos = (pos - smoke.position) / smoke.size;
+    
+    // 计算到椭球中心的归一化距离
+    float dist = glm::length(localPos);
+    
+    // 超出范围则密度为0
+    if (dist > 1.0f) return 0.0f;
+    
+    // 密度衰减：中心密度高，边缘密度低
+    // 使用平滑的衰减函数
+    float density = smoke.density * (1.0f - dist * dist);
+    density = density * density;  // 平方衰减，使边缘更柔和
+    
+    // 考虑烟雾年龄（随时间扩散）
+    float ageFactor = 1.0f / (1.0f + smoke.age * 0.5f);
+    density *= ageFactor;
+    
+    return glm::clamp(density, 0.0f, 1.0f);
+}
+
+/**
+ * 体积光线步进 - 计算烟雾的透射和散射
+ * @param ray 光线
+ * @param maxDistance 最大采样距离
+ * @return 烟雾贡献的颜色
+ */
+glm::vec3 traceVolumeRay(Ray ray, float maxDistance) {
+    if (smokeVolumes.empty()) return glm::vec3(0.0f);
+    
+    float stepSize = 0.1f;  // 步进大小
+    int maxSteps = (int)(maxDistance / stepSize);
+    
+    glm::vec3 color(0.0f);
+    float transmittance = 1.0f;  // 透射率（光线穿透烟雾的程度）
+    
+    float t = 0.0f;
+    for (int i = 0; i < maxSteps && transmittance > 0.01f; i++) {
+        glm::vec3 pos = ray.origin + ray.direction * t;
+        
+        // 累积所有烟雾源的密度
+        float totalDensity = 0.0f;
+        for (const auto& smoke : smokeVolumes) {
+            totalDensity += getSmokeDensity(pos, smoke);
+        }
+        
+        if (totalDensity > 0.001f) {
+            // 吸收系数（烟雾吸收光线）
+            float absorption = totalDensity * stepSize * 2.0f;
+            
+            // 散射系数（烟雾散射光线，使烟雾可见）
+            float scattering = totalDensity * stepSize * 0.5f;
+            
+            // 更新透射率（Beer-Lambert定律）
+            transmittance *= exp(-absorption);
+            
+            // 单次散射（简化版，假设光源在相机方向）
+            // 烟雾颜色：灰白色，略带黄色
+            glm::vec3 smokeColor(0.7f, 0.65f, 0.6f);
+            
+            // 散射光贡献
+            glm::vec3 scatteredLight = smokeColor * scattering;
+            color += scatteredLight * transmittance;
+        }
+        
+        t += stepSize;
+    }
+    
+    return color;
+}
 
 /**
  Function to check if a point is in shadow from a light source
@@ -549,18 +716,51 @@ glm::vec3 trace_ray(Ray ray){
 	}
 
 	glm::vec3 color(0.0);
+	
+	// 计算体积烟雾效果（从相机到物体或背景）
+	float volumeDistance = closest_hit.hit ? closest_hit.distance : 50.0f;
+	glm::vec3 volumeColor = traceVolumeRay(ray, volumeDistance);
+	
 	if(closest_hit.hit){
-		color = PhongModel(closest_hit.intersection, closest_hit.normal, glm::normalize(-ray.direction), closest_hit.object->getMaterial());
+		// 计算物体颜色
+		glm::vec3 objectColor = PhongModel(closest_hit.intersection, closest_hit.normal, glm::normalize(-ray.direction), closest_hit.object->getMaterial());
+		
+		// 计算从相机到物体的透射率（烟雾对物体的遮挡）
+		// 通过计算体积中的总密度来估算透射率
+		float totalDensity = 0.0f;
+		float stepSize = 0.1f;
+		int steps = (int)(closest_hit.distance / stepSize);
+		
+		for (int i = 0; i < steps; i++) {
+            float t = i * stepSize;
+            glm::vec3 pos = ray.origin + ray.direction * t;
+            
+            for (const auto& smoke : smokeVolumes) {
+                totalDensity += getSmokeDensity(pos, smoke) * stepSize;
+            }
+        }
+        
+        // Beer-Lambert定律：透射率 = exp(-吸收系数 * 距离)
+        float transmittance = exp(-totalDensity * 2.0f);
+		
+		// 最终颜色 = 体积散射 + 物体颜色 * 透射率
+		color = volumeColor + objectColor * transmittance;
 	}else{
-		color = glm::vec3(0.0, 0.0, 0.0);
+		// 背景颜色 = 体积散射
+		color = volumeColor;
 	}
+	
 	return color;
 }
 /**
  Function defining the scene
+ @param elevationAngle 炮管抬起角度（度），0表示水平，负值表示向上抬起
+ @param recoilDistance 炮管缩退距离（沿炮管反方向），用于模拟后坐力效果
+ @param smokeIntensity 烟雾强度（0-1），0表示无烟雾，1表示最大烟雾
  */
-void sceneDefinition (){
-
+void sceneDefinition (float elevationAngle = -20.0f, float recoilDistance = 0.0f, float smokeIntensity = 0.0f){
+	// 清空之前的烟雾体积
+	smokeVolumes.clear();
 	
 	Material green_diffuse;
 	green_diffuse.ambient = glm::vec3(0.7f, 0.9f, 0.7f);
@@ -604,6 +804,61 @@ void sceneDefinition (){
         std::vector<glm::ivec3> faces;
         loadOBJ("./meshes/barrel.obj", verts, faces);
 
+        // 计算炮管长度（沿Z轴方向，考虑缩放）
+        float barrelLength = 0.0f;
+        if (!verts.empty()) {
+            float minZ = verts[0].z;
+            float maxZ = verts[0].z;
+            for (const auto &v : verts) {
+                if (v.z < minZ) minZ = v.z;
+                if (v.z > maxZ) maxZ = v.z;
+            }
+            barrelLength = (maxZ - minZ) * meshScale;  // 考虑缩放后的长度
+        }
+
+        // 炮管的基准平移（连接点附近）
+        glm::vec3 T_barrel_base(-0.2f, -2.0f, 15.4f);
+        // 假设炮管在本地坐标中沿 +Z 轴指向前方，则经过相同的 Y 轴旋转后，
+        // 世界空间中的指向方向为 (s, 0, c)
+        glm::vec3 forwardDir(s, 0.0f, c);
+        forwardDir = glm::normalize(forwardDir);
+        
+        // 先计算旋转轴（红色圆柱体的轴心）
+        // 添加圆柱体：高度轴垂直于炮管方向（横过来）
+        // 炮管方向是 (s, 0, c)，在XZ平面上
+        // 垂直于炮管方向且在XZ平面内的向量是 (-c, 0, s)
+        glm::vec3 cylinderAxis(-c, 0.0f, s);  // 高度轴横过来，垂直于炮管方向
+        cylinderAxis = glm::normalize(cylinderAxis);  // 确保归一化
+        // 沿炮管方向平移 3.0f，然后向炮管反方向平移 0.3f
+        // 向上平移圆柱体，使其与炮管相交（炮管在Y=-2.0f附近，圆柱体中心需要与炮管中心对齐）
+        glm::vec3 cylinderCenter = T_barrel_base + forwardDir * 3.0f - forwardDir * 0.3f;
+        cylinderCenter.y += 0.4f;  // 向上平移0.5f后向下0.1f，净向上0.4f
+        
+        // 计算旋转轴心（红色圆柱体的轴心，即炮耳位置）
+        glm::vec3 rotationAxisPoint(cylinderCenter.x, T_barrel_base.y, cylinderCenter.z);
+        glm::vec3 rotationAxis = cylinderAxis;  // 旋转轴方向（炮耳轴方向）
+        
+        // 计算绕旋转轴旋转的旋转矩阵
+        // elevationAngle参数：向上抬起角度（负值表示向上）
+        float angleRad = glm::radians(elevationAngle);
+        
+        // 使用Rodrigues旋转公式构建旋转矩阵
+        glm::vec3 axis = glm::normalize(rotationAxis);
+        float cosA = cosf(angleRad);
+        float sinA = sinf(angleRad);
+        
+        // Rodrigues旋转矩阵: R = I + sin(θ)[k]× + (1-cos(θ))[k]×²
+        glm::mat3 K(0.0f, -axis.z, axis.y,
+                    axis.z, 0.0f, -axis.x,
+                    -axis.y, axis.x, 0.0f);
+        glm::mat3 K2 = K * K;
+        glm::mat3 rotationMatrix = glm::mat3(1.0f) + sinA * K + (1.0f - cosA) * K2;
+        
+        // offset 为沿着炮管指向方向移动的距离（>0 往炮口方向，<0 往反方向）
+        const float barrelOffset = 0.3f; // 你可以根据效果自行调整这个值
+        // 计算炮管位置：基础位置 + 偏移 - 缩退距离（向后移动）
+        glm::vec3 T_barrel = T_barrel_base + forwardDir * barrelOffset - forwardDir * recoilDistance;
+        
         std::vector<glm::vec3> transformedVerts = verts;
         for (auto &v : transformedVerts) {
             // 缩放
@@ -613,20 +868,126 @@ void sceneDefinition (){
             float z = v.z;
             v.x = c * x + s * z;
             v.z = -s * x + c * z;
+            
+            // 计算顶点在最终位置（相对于T_barrel）
+            glm::vec3 vWorld = T_barrel + v;
+            
+            // 计算相对于旋转轴心的位置
+            glm::vec3 vRelative = vWorld - rotationAxisPoint;
+            
+            // 绕旋转轴旋转
+            glm::vec3 vRotated = rotationMatrix * vRelative;
+            
+            // 计算旋转后的世界位置
+            glm::vec3 vWorldRotated = rotationAxisPoint + vRotated;
+            
+            // 转换回相对于T_barrel的局部坐标
+            v = vWorldRotated - T_barrel;
         }
-
-        // 炮管的基准平移（连接点附近）
-        glm::vec3 T_barrel_base(-0.2f, -2.0f, 15.4f);
-        // 假设炮管在本地坐标中沿 +Z 轴指向前方，则经过相同的 Y 轴旋转后，
-        // 世界空间中的指向方向为 (s, 0, c)
-        glm::vec3 forwardDir(s, 0.0f, c);
-        forwardDir = glm::normalize(forwardDir);
-        // offset 为沿着炮管指向方向移动的距离（>0 往炮口方向，<0 往反方向）
-        const float barrelOffset = 0.3f; // 你可以根据效果自行调整这个值
-        glm::vec3 T_barrel = T_barrel_base + forwardDir * barrelOffset;
+        
         if (!transformedVerts.empty() && !faces.empty()) {
             objects.push_back(new Mesh(transformedVerts, faces, gray_diffuse, T_barrel));
         }
+        
+        float cylinderRadius = 0.04f;  // 圆柱体半径（减小五倍）
+        float cylinderHeight = 10.0f;  // 圆柱体高度
+        
+        Material cylinderMaterial;
+        cylinderMaterial.ambient = glm::vec3(0.1f, 0.1f, 0.8f);
+        cylinderMaterial.diffuse = glm::vec3(0.2f, 0.2f, 0.9f);
+        cylinderMaterial.specular = glm::vec3(0.5f);
+        cylinderMaterial.shininess = 64.0f;
+        
+        objects.push_back(new Cylinder(cylinderCenter, cylinderAxis, cylinderRadius, cylinderHeight, cylinderMaterial));
+        
+        // 添加烟雾效果（在炮口位置）
+        if (smokeIntensity > 0.0f) {
+            // 计算旋转后的炮管方向
+            glm::vec3 barrelDirection = forwardDir;
+            glm::vec3 barrelDirRotated = rotationMatrix * barrelDirection;
+            glm::vec3 rotatedBarrelDirection = glm::normalize(barrelDirRotated);
+            
+            // 计算炮口位置：从炮管模型的前端（maxZ）计算
+            // 假设炮管模型沿+Z轴方向，炮口在Z的最大值处
+            float maxZ = 0.0f;
+            if (!verts.empty()) {
+                for (const auto &v : verts) {
+                    if (v.z > maxZ) maxZ = v.z;
+                }
+            }
+            
+            // 炮口在模型局部坐标系中的位置（相对于T_barrel）
+            // 炮管模型沿+Z轴，炮口在maxZ处
+            glm::vec3 muzzleLocalPos(0.0f, 0.0f, maxZ * meshScale);
+            
+            // 应用与炮管顶点相同的变换：
+            // 1. 水平旋转（Y轴旋转）
+            float x = muzzleLocalPos.x;
+            float z = muzzleLocalPos.z;
+            glm::vec3 muzzleRotated(c * x + s * z, muzzleLocalPos.y, -s * x + c * z);
+            
+            // 2. 计算相对于旋转轴心的位置
+            glm::vec3 muzzleWorld = T_barrel + muzzleRotated;  // 先计算未旋转的世界位置
+            glm::vec3 muzzleRelative = muzzleWorld - rotationAxisPoint;
+            
+            // 3. 应用俯仰旋转（绕炮耳轴）
+            glm::vec3 muzzleRotated2 = rotationMatrix * muzzleRelative;
+            
+            // 4. 最终炮口位置
+            glm::vec3 muzzlePosition = rotationAxisPoint + muzzleRotated2;
+            
+            // 创建多个烟雾体积，形成连续的烟雾云
+            int numSmokeVolumes = 3 + (int)(smokeIntensity * 5);  // 3-8个烟雾体积
+            
+            for (int i = 0; i < numSmokeVolumes; i++) {
+                float t = (float)i / (float)(numSmokeVolumes - 1);
+                
+                // 烟雾向上扩散（热空气上升）
+                glm::vec3 upDirection(0.0f, 1.0f, 0.0f);
+                float height = t * smokeIntensity * 1.5f;  // 最大高度
+                
+                // 向前方也有一定扩散（炮口方向）
+                float forwardDistance = t * smokeIntensity * 0.8f;
+                
+                // 水平扩散（烟雾扩散）
+                float horizontalSpread = t * t * smokeIntensity * 0.6f;
+                
+                // 计算烟雾位置
+                glm::vec3 smokePos = muzzlePosition 
+                    + upDirection * height
+                    + rotatedBarrelDirection * forwardDistance;
+                
+                // 添加一些随机偏移（使烟雾更自然）
+                float angle = t * 4.0f * M_PI;
+                smokePos.x += cosf(angle) * horizontalSpread;
+                smokePos.z += sinf(angle) * horizontalSpread;
+                
+                // 烟雾大小：底层小，上层大（扩散）
+                glm::vec3 smokeSize(
+                    0.3f + t * smokeIntensity * 0.8f,
+                    0.4f + t * smokeIntensity * 1.0f,
+                    0.3f + t * smokeIntensity * 0.8f
+                );
+                
+                // 烟雾密度：底层高，上层低（扩散变淡）
+                float smokeDensity = smokeIntensity * (1.0f - t * 0.6f);
+                
+                // 烟雾年龄：用于动画效果
+                float smokeAge = t * 0.5f;
+                
+                SmokeVolume smoke;
+                smoke.position = smokePos;
+                smoke.size = smokeSize;
+                smoke.density = smokeDensity;
+                smoke.age = smokeAge;
+                
+                smokeVolumes.push_back(smoke);
+            }
+        }
+        
+        // 输出计算结果（可选，用于调试）
+        // cout << "直线起点: (" << intersectionPoint.x << ", " << intersectionPoint.y << ", " << intersectionPoint.z << ")" << endl;
+        // cout << "直线方向: (" << cylinderAxis.x << ", " << cylinderAxis.y << ", " << cylinderAxis.z << ")" << endl;
     }
 
     // ---------- 加载 turret ----------
@@ -819,11 +1180,127 @@ int main(int argc, const char * argv[]) {
         renderMoreTest();
         return 0;
     }
+    
+    // Check for --animation mode
+    if (argc > 1 && string(argv[1]) == "--animation") {
+        cout << "=== Rendering 12-frame animation (8 elevation + 4 recoil) ===" << endl;
+        
+        // 先加载炮管模型计算长度
+        std::vector<glm::vec3> verts;
+        std::vector<glm::ivec3> faces;
+        loadOBJ("./meshes/barrel.obj", verts, faces);
+        
+        float barrelLength = 0.0f;
+        const float meshScale = 0.4f;  // 与sceneDefinition中的缩放一致
+        if (!verts.empty()) {
+            float minZ = verts[0].z;
+            float maxZ = verts[0].z;
+            for (const auto &v : verts) {
+                if (v.z < minZ) minZ = v.z;
+                if (v.z > maxZ) maxZ = v.z;
+            }
+            barrelLength = (maxZ - minZ) * meshScale;  // 考虑缩放后的长度
+        }
+        float maxRecoil = barrelLength / 20.0f;  // 最大缩退距离为炮管长度的1/20
+        
+        cout << "Barrel length: " << barrelLength << ", Max recoil: " << maxRecoil << endl;
+        
+        int width = 1280;
+        int height = 720;
+        float fov = 90;
+        int numFrames = 12;  // 抬起8帧 + 缩退4帧
+        int elevationFrames = 8;  // 抬起帧数
+        int recoilFrames = 4;     // 缩退帧数
+        float maxAngle = -20.0f;  // 最大抬起角度（向上）
+        
+        for (int frame = 0; frame < numFrames; frame++) {
+            float elevationAngle = 0.0f;
+            float recoilDistance = 0.0f;
+            float smokeIntensity = 0.0f;
+            
+            if (frame < elevationFrames) {
+                // 前8帧：炮管抬起动画（从0度到-20度）
+                float t = (float)frame / (float)(elevationFrames - 1);  // 0到1
+                elevationAngle = maxAngle * t;
+                recoilDistance = 0.0f;  // 不缩退
+                smokeIntensity = 0.0f;  // 无烟雾
+            } else {
+                // 后4帧：缩退动画（保持抬起角度为-20度）
+                elevationAngle = maxAngle;  // 保持最大抬起角度
+                
+                // 缩退动画：前30%快速缩退，中间20%保持，后50%缓慢复进
+                float recoilT = (float)(frame - elevationFrames) / (float)(recoilFrames - 1);  // 0到1
+                if (recoilT < 0.3f) {
+                    // 快速缩退阶段（0-30%）
+                    float t = recoilT / 0.3f;
+                    recoilDistance = maxRecoil * t;
+                    smokeIntensity = t;  // 烟雾逐渐出现
+                } else if (recoilT < 0.5f) {
+                    // 保持最大缩退（30-50%）
+                    recoilDistance = maxRecoil;
+                    smokeIntensity = 1.0f;  // 最大烟雾
+                } else {
+                    // 缓慢复进阶段（50-100%）
+                    float t = (recoilT - 0.5f) / 0.5f;
+                    // 使用缓动函数（ease-out）
+                    float easeOut = 1.0f - (1.0f - t) * (1.0f - t);
+                    recoilDistance = maxRecoil * (1.0f - easeOut);
+                    smokeIntensity = 1.0f - t * 0.7f;  // 烟雾逐渐消散（保留30%）
+                }
+            }
+            
+            cout << "Rendering frame " << frame + 1 << "/" << numFrames 
+                 << " (angle: " << elevationAngle << " degrees, recoil: " 
+                 << recoilDistance << ", smoke: " << smokeIntensity << ")..." << endl;
+            
+            // 清理之前的场景
+            for (size_t i = 0; i < objects.size(); i++) delete objects[i];
+            for (size_t i = 0; i < lights.size(); i++) delete lights[i];
+            objects.clear();
+            lights.clear();
+            
+            // 定义当前帧的场景
+            sceneDefinition(elevationAngle, recoilDistance, smokeIntensity);
+            
+            // 渲染当前帧
+            Image image(width, height);
+            float s = 2*tan(0.5*fov/180*M_PI)/width;
+            float X = -s * width / 2;
+            float Y = s * height / 2;
+            
+            clock_t frameStart = clock();
+            for(int i = 0; i < width ; i++) {
+                for(int j = 0; j < height ; j++){
+                    float dx = X + i*s + s/2;
+                    float dy = Y - j*s - s/2;
+                    float dz = 1;
+                    
+                    glm::vec3 origin(0, 0, 0);
+                    glm::vec3 direction(dx, dy, dz);
+                    direction = glm::normalize(direction);
+                    
+                    Ray ray(origin, direction);
+                    image.setPixel(i, j, toneMapping(trace_ray(ray)));
+                }
+            }
+            clock_t frameTime = clock() - frameStart;
+            cout << "  Frame " << frame + 1 << " completed in " 
+                 << ((float)frameTime)/CLOCKS_PER_SEC << " seconds" << endl;
+            
+            // 保存当前帧
+            char filename[256];
+            snprintf(filename, sizeof(filename), "./frame_%03d.ppm", frame);
+            image.writeImage(filename);
+        }
+        
+        cout << "Animation rendering complete! " << numFrames << " frames saved." << endl;
+        return 0;
+    }
 
     clock_t t = clock(); // variable for keeping the time of the rendering
 
-    int width = 2048; //width of the image (increase for better quality)
-    int height = 1536; // height of the image (increase for better quality)
+    int width = 1280; //width of the image (increase for better quality)
+    int height = 720; // height of the image (increase for better quality)
     float fov = 90; // field of view
 
 	sceneDefinition(); // Let's define a scene

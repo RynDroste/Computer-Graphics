@@ -30,3 +30,5 @@ This raytracer now includes a HLBVH (Hierarchical Linear Bounding Volume Hierarc
 - `bvh.h`: BVH data structures and interface
 - `main.cpp`: Complete BVH implementation and integration
 - `plot_performance.py`: Python script for performance visualization
+
+https://sketchfab.com/3d-models/16-mk6-9b6563ebc38d47f9bc45af5d2bbed745

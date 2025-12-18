@@ -1,7 +1,3 @@
-/**
-@file main.cpp
-*/
-
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -11,28 +7,221 @@
 #include <sstream>
 #include <limits>
 #include "glm/glm.hpp"
-#include "glm/gtx/transform.hpp"
 
 #include "Image.h"
 #include "Material.h"
 #include "bvh.h"
+#include "bmpmini.hpp"
 
 using namespace std;
-
-// Ray class is now defined in bvh.h
-// Using the definition from bvh.h
+using namespace image;
 
 class Object;
+class PerlinNoise {
+private:
+    static float hash(float n) {
+        float result = sinf(n) * 43758.5453f;
+        return result - floorf(result);
+    }
+    
+    static float smoothstep(float t) {
+        return t * t * (3.0f - 2.0f * t);
+    }
+    
+    static float grad(int hash, float x, float y) {
+        int h = hash & 3;
+        float u = h < 2 ? x : y;
+        float v = h < 1 ? y : (h == 1 ? -x : -y);
+        return u + v;
+    }
 
-/**
- Structure representing the even of hitting an object
- */
+public:
+    static float noise2D(float x, float y) {
+        int X = (int)floorf(x) & 255;
+        int Y = (int)floorf(y) & 255;
+        x -= floorf(x);
+        y -= floorf(y);
+        
+        float u = smoothstep(x);
+        float v = smoothstep(y);
+        
+        int A = (int)(X + Y * 57) & 255;
+        int B = (int)((X + 1) + Y * 57) & 255;
+        int AA = (int)(X + (Y + 1) * 57) & 255;
+        int BA = (int)((X + 1) + (Y + 1) * 57) & 255;
+        
+        float a = grad(A, x, y);
+        float b = grad(B, x - 1.0f, y);
+        float aa = grad(AA, x, y - 1.0f);
+        float ba = grad(BA, x - 1.0f, y - 1.0f);
+        
+        float lerp1 = a + (b - a) * u;
+        float lerp2 = aa + (ba - aa) * u;
+        return lerp1 + (lerp2 - lerp1) * v;
+    }
+    
+    static float fractalNoise2D(float x, float y, int octaves = 4, float persistence = 0.5f) {
+        float value = 0.0f;
+        float amplitude = 1.0f;
+        float frequency = 1.0f;
+        float maxValue = 0.0f;
+        
+        for (int i = 0; i < octaves; i++) {
+            value += noise2D(x * frequency, y * frequency) * amplitude;
+            maxValue += amplitude;
+            amplitude *= persistence;
+            frequency *= 2.0f;
+        }
+        
+        return value / maxValue;
+    }
+    
+    static float noise3D(float x, float y, float z) {
+        int X = (int)floorf(x) & 255;
+        int Y = (int)floorf(y) & 255;
+        int Z = (int)floorf(z) & 255;
+        x -= floorf(x);
+        y -= floorf(y);
+        z -= floorf(z);
+        
+        float u = smoothstep(x);
+        float v = smoothstep(y);
+        float w = smoothstep(z);
+        
+        int A = (int)(X + Y * 57 + Z * 131) & 255;
+        int B = (int)((X + 1) + Y * 57 + Z * 131) & 255;
+        int AA = (int)(X + (Y + 1) * 57 + Z * 131) & 255;
+        int BA = (int)((X + 1) + (Y + 1) * 57 + Z * 131) & 255;
+        int AB = (int)(X + Y * 57 + (Z + 1) * 131) & 255;
+        int BB = (int)((X + 1) + Y * 57 + (Z + 1) * 131) & 255;
+        int AAB = (int)(X + (Y + 1) * 57 + (Z + 1) * 131) & 255;
+        int BAB = (int)((X + 1) + (Y + 1) * 57 + (Z + 1) * 131) & 255;
+        
+        float a = grad3D(A, x, y, z);
+        float b = grad3D(B, x - 1.0f, y, z);
+        float aa = grad3D(AA, x, y - 1.0f, z);
+        float ba = grad3D(BA, x - 1.0f, y - 1.0f, z);
+        float ab = grad3D(AB, x, y, z - 1.0f);
+        float bb = grad3D(BB, x - 1.0f, y, z - 1.0f);
+        float aab = grad3D(AAB, x, y - 1.0f, z - 1.0f);
+        float bab = grad3D(BAB, x - 1.0f, y - 1.0f, z - 1.0f);
+        
+        float lerp1 = a + (b - a) * u;
+        float lerp2 = aa + (ba - aa) * u;
+        float lerp3 = ab + (bb - ab) * u;
+        float lerp4 = aab + (bab - aab) * u;
+        float lerp5 = lerp1 + (lerp2 - lerp1) * v;
+        float lerp6 = lerp3 + (lerp4 - lerp3) * v;
+        return lerp5 + (lerp6 - lerp5) * w;
+    }
+    
+    static float grad3D(int hash, float x, float y, float z) {
+        int h = hash & 15;
+        float u = h < 8 ? x : y;
+        float v = h < 4 ? y : (h == 12 || h == 14 ? x : z);
+        return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
+    }
+    
+    static float fractalNoise3D(float x, float y, float z, int octaves = 4, float persistence = 0.5f) {
+        float value = 0.0f;
+        float amplitude = 1.0f;
+        float frequency = 1.0f;
+        float maxValue = 0.0f;
+        
+        for (int i = 0; i < octaves; i++) {
+            value += noise3D(x * frequency, y * frequency, z * frequency) * amplitude;
+            maxValue += amplitude;
+            amplitude *= persistence;
+            frequency *= 2.0f;
+        }
+        
+        return value / maxValue;
+    }
+};
+
 struct Hit{
     bool hit; ///< Boolean indicating whether there was or there was no intersection with an object
     glm::vec3 normal; ///< Normal vector of the intersected object at the intersection point
     glm::vec3 intersection; ///< Point of Intersection
     float distance; ///< Distance from the origin of the ray to the intersection point
     Object *object; ///< A pointer to the intersected object
+    glm::vec3 tangent; ///< Tangent vector (for anisotropic materials like Ward model)
+    glm::vec3 bitangent; ///< Bitangent vector (for anisotropic materials like Ward model)
+    float u; ///< Texture coordinate U (0-1)
+    float v; ///< Texture coordinate V (0-1)
+    
+    Hit() : hit(false), u(0.0f), v(0.0f) {}
+};
+
+/**
+ * Texture class for loading and sampling BMP textures
+ */
+class Texture {
+private:
+    mutable BMPMini bmp;  // mutable to allow get() in const function
+    int width;
+    int height;
+    bool loaded;
+
+public:
+    Texture() : loaded(false), width(0), height(0) {}
+    
+    bool load(const std::string& filename) {
+        try {
+            bmp.read(filename);
+            ImageView imageView = bmp.get();
+            width = imageView.width;
+            height = imageView.height;
+            loaded = (width > 0 && height > 0);
+            return loaded;
+        } catch (...) {
+            loaded = false;
+            return false;
+        }
+    }
+    
+    bool isLoaded() const { return loaded; }
+    
+    /**
+     * Sample texture at UV coordinates (0-1 range)
+     * Returns RGB color as vec3 (0-1 range)
+     */
+    glm::vec3 sample(float u, float v) const {
+        if (!loaded) return glm::vec3(1.0f);  // Return white if no texture
+        
+        // Get image view when needed
+        ImageView imageView = bmp.get();
+        
+        // Clamp UV coordinates to [0, 1]
+        u = glm::clamp(u, 0.0f, 1.0f);
+        v = glm::clamp(v, 0.0f, 1.0f);
+        
+        // Convert to pixel coordinates
+        int x = (int)(u * (width - 1));
+        int y = (int)(v * (height - 1));
+        
+        // Ensure within bounds
+        x = glm::clamp(x, 0, width - 1);
+        y = glm::clamp(y, 0, height - 1);
+        
+        // Get pixel index (BMP is BGR format)
+        int channels = imageView.channels;
+        int index = (y * width + x) * channels;
+        
+        if (channels >= 3) {
+            // BGR to RGB conversion, normalize to [0, 1]
+            float r = imageView.data[index + 2] / 255.0f;
+            float g = imageView.data[index + 1] / 255.0f;
+            float b = imageView.data[index + 0] / 255.0f;
+            return glm::vec3(r, g, b);
+        } else if (channels == 1) {
+            // Grayscale
+            float gray = imageView.data[index] / 255.0f;
+            return glm::vec3(gray);
+        }
+        
+        return glm::vec3(1.0f);  // Default to white
+    }
 };
 
 /**
@@ -48,8 +237,50 @@ protected:
 public:
 	glm::vec3 color; ///< Color of the object
 	Material material; ///< Structure describing the material of the object
+	Texture* texture; ///< Texture for diffuse color (nullptr if no texture)
+	Texture* normalMap; ///< Normal map texture (nullptr if no normal map)
+	Texture* aoMap; ///< Ambient occlusion texture (nullptr if no AO map)
+	Texture* roughnessMap; ///< Roughness texture (nullptr if no roughness map)
+	
+	Object() : texture(nullptr), normalMap(nullptr), aoMap(nullptr), roughnessMap(nullptr) {}
+	
+	/** Function that sets the texture
+	 @param tex Pointer to texture object
+	*/
+	void setTexture(Texture* tex) {
+		texture = tex;
+	}
+	
+	/** Function that sets the normal map
+	 @param nm Pointer to normal map texture object
+	*/
+	void setNormalMap(Texture* nm) {
+		normalMap = nm;
+	}
+	
+	/** Function that sets the ambient occlusion map
+	 @param ao Pointer to AO texture object
+	*/
+	void setAOMap(Texture* ao) {
+		aoMap = ao;
+	}
+	
+	/** Function that sets the roughness map
+	 @param rough Pointer to roughness texture object
+	*/
+	void setRoughnessMap(Texture* rough) {
+		roughnessMap = rough;
+	}
+	
 	/** A function computing an intersection, which returns the structure Hit */
     virtual Hit intersect(Ray ray) = 0;
+	
+	/** Function that returns whether this object casts shadows
+	 @return true if the object casts shadows, false otherwise
+	*/
+	virtual bool castsShadow() const {
+		return true;
+	}
 
 	/** Function that returns the material struct of the object*/
 	Material getMaterial(){
@@ -102,6 +333,14 @@ public:
                 hit.distance = t;
                 hit.object = this;
                 hit.intersection = t * ray.direction + ray.origin;
+                hit.tangent = glm::vec3(0.0f);
+                hit.bitangent = glm::vec3(0.0f);
+                
+                float textureScale = 0.1f;
+                hit.u = fmod(hit.intersection.x * textureScale, 1.0f);
+                if (hit.u < 0.0f) hit.u += 1.0f;
+                hit.v = fmod(hit.intersection.z * textureScale, 1.0f);
+                if (hit.v < 0.0f) hit.v += 1.0f;
             }
         }
 		
@@ -151,6 +390,44 @@ public:
         hit.distance = t;
         hit.intersection = ray.origin + t * ray.direction;
         hit.normal = faceNormal;
+        
+        glm::vec2 uv0(0.0f, 0.0f);
+        glm::vec2 uv1(1.0f, 0.0f);
+        glm::vec2 uv2(0.0f, 1.0f);
+        glm::vec2 deltaUV1 = uv1 - uv0;
+        glm::vec2 deltaUV2 = uv2 - uv0;
+        
+        float f = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
+        
+        glm::vec3 tangent;
+        tangent.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
+        tangent.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
+        tangent.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
+        tangent = glm::normalize(tangent);
+        
+        glm::vec3 bitangent;
+        bitangent.x = f * (-deltaUV2.x * edge1.x + deltaUV1.x * edge2.x);
+        bitangent.y = f * (-deltaUV2.x * edge1.y + deltaUV1.x * edge2.y);
+        bitangent.z = f * (-deltaUV2.x * edge1.z + deltaUV1.x * edge2.z);
+        bitangent = glm::normalize(bitangent);
+        
+        tangent = glm::normalize(tangent - glm::dot(tangent, hit.normal) * hit.normal);
+        bitangent = glm::normalize(bitangent - glm::dot(bitangent, hit.normal) * hit.normal);
+        if (glm::dot(glm::cross(tangent, bitangent), hit.normal) < 0.0f) {
+            bitangent = -bitangent;
+        }
+        
+        hit.tangent = tangent;
+        hit.bitangent = bitangent;
+        
+        float w = 1.0f - u - v;
+        glm::vec3 texCoord = w * v0 + u * v1 + v * v2;
+        float textureScale = 0.1f;
+        hit.u = fmod(texCoord.x * textureScale, 1.0f);
+        if (hit.u < 0.0f) hit.u += 1.0f;
+        hit.v = fmod(texCoord.z * textureScale, 1.0f);
+        if (hit.v < 0.0f) hit.v += 1.0f;
+        
         hit.object = this;
         return hit;
     }
@@ -166,10 +443,10 @@ public:
 
 class Cylinder : public Object {
 private:
-    glm::vec3 center;      // 圆柱体中心点
-    glm::vec3 axis;         // 高度轴方向（已归一化）
-    float radius;           // 半径
-    float halfHeight;       // 半高（高度的一半）
+    glm::vec3 center;
+    glm::vec3 axis;
+    float radius;
+    float halfHeight;
 
 public:
     Cylinder(const glm::vec3 &center, const glm::vec3 &axis, float radius, float height) 
@@ -185,18 +462,11 @@ public:
         Hit hit;
         hit.hit = false;
         
-        // 将射线转换到圆柱体局部坐标系
         glm::vec3 oc = ray.origin - center;
-        
-        // 计算射线方向在轴上的投影
         float rayAxisDot = glm::dot(ray.direction, axis);
         float ocAxisDot = glm::dot(oc, axis);
-        
-        // 计算垂直于轴的平面上的分量
         glm::vec3 rayPerp = ray.direction - rayAxisDot * axis;
         glm::vec3 ocPerp = oc - ocAxisDot * axis;
-        
-        // 二次方程系数：a*t^2 + b*t + c = 0
         float a = glm::dot(rayPerp, rayPerp);
         float b = 2.0f * glm::dot(rayPerp, ocPerp);
         float c = glm::dot(ocPerp, ocPerp) - radius * radius;
@@ -208,7 +478,6 @@ public:
         float t1 = (-b - sqrtD) / (2.0f * a);
         float t2 = (-b + sqrtD) / (2.0f * a);
         
-        // 检查两个交点
         float t = (t1 > 0.0f && t1 < ray.tMax) ? t1 : t2;
         if (t <= 0.0f || t > ray.tMax) return hit;
         
@@ -216,25 +485,253 @@ public:
         glm::vec3 toIntersection = intersection - center;
         float projOnAxis = glm::dot(toIntersection, axis);
         
-        // 检查交点是否在圆柱体的高度范围内
         if (fabs(projOnAxis) > halfHeight) return hit;
-        
-        // 计算法向量（从轴到交点的方向）
         glm::vec3 normal = toIntersection - projOnAxis * axis;
         float normalLen = glm::length(normal);
         if (normalLen > 1e-6f) {
             normal = normal / normalLen;
         } else {
-            // 如果交点在轴上（理论上不应该发生），使用垂直方向
             glm::vec3 up(0, 1, 0);
             if (fabs(glm::dot(axis, up)) > 0.9f) up = glm::vec3(1, 0, 0);
             normal = glm::normalize(glm::cross(axis, up));
         }
         
+        glm::vec3 tangent = axis;
+        glm::vec3 bitangent = glm::normalize(glm::cross(normal, tangent));
+        tangent = glm::normalize(glm::cross(bitangent, normal));
+        
         hit.hit = true;
         hit.distance = t;
         hit.intersection = intersection;
         hit.normal = normal;
+        hit.tangent = tangent;
+        hit.bitangent = bitangent;
+        hit.object = this;
+        
+        return hit;
+    }
+};
+
+class Sphere : public Object {
+private:
+    glm::vec3 center;
+    float radius;
+
+public:
+    Sphere(const glm::vec3 &center, float radius) 
+        : center(center), radius(radius) {
+    }
+    
+    Sphere(const glm::vec3 &center, float radius, const Material &mat) 
+        : center(center), radius(radius) {
+        material = mat;
+    }
+
+    Hit intersect(Ray ray) {
+        Hit hit;
+        hit.hit = false;
+        
+        glm::vec3 oc = ray.origin - center;
+        float a = glm::dot(ray.direction, ray.direction);
+        float b = 2.0f * glm::dot(oc, ray.direction);
+        float c = glm::dot(oc, oc) - radius * radius;
+        float discriminant = b * b - 4.0f * a * c;
+        
+        if (discriminant < 0.0f) return hit;
+        
+        float sqrtD = sqrtf(discriminant);
+        float t1 = (-b - sqrtD) / (2.0f * a);
+        float t2 = (-b + sqrtD) / (2.0f * a);
+        
+        float t = (t1 > 0.0f && t1 < ray.tMax) ? t1 : t2;
+        if (t <= 0.0f || t > ray.tMax) return hit;
+        
+        hit.hit = true;
+        hit.distance = t;
+        hit.intersection = ray.origin + t * ray.direction;
+        hit.normal = glm::normalize(hit.intersection - center);
+        
+        glm::vec3 toPoint = hit.intersection - center;
+        glm::vec3 up(0.0f, 1.0f, 0.0f);
+        
+        glm::vec3 normalProjY = glm::vec3(hit.normal.x, 0.0f, hit.normal.z);
+        if (glm::length(normalProjY) > 0.001f) {
+            normalProjY = glm::normalize(normalProjY);
+            hit.tangent = glm::normalize(glm::cross(up, normalProjY));
+        } else {
+            hit.tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+        }
+        
+        hit.bitangent = glm::normalize(glm::cross(hit.normal, hit.tangent));
+        hit.tangent = glm::normalize(glm::cross(hit.bitangent, hit.normal));
+        float u = atan2(hit.normal.z, hit.normal.x) / (2.0f * M_PI) + 0.5f;
+        float v = acos(glm::clamp(hit.normal.y, -1.0f, 1.0f)) / M_PI;
+        hit.u = u;
+        hit.v = v;
+        
+        hit.object = this;
+        
+        return hit;
+    }
+};
+
+class WaterPlane : public Object {
+private:
+    glm::vec3 center;
+    glm::vec3 normal;
+    float size;
+    float waveHeight;
+    float waveFrequency;
+    float time;
+    int octaves;
+
+public:
+    WaterPlane(glm::vec3 center, glm::vec3 normal, float size, float waveHeight = 0.2f, float waveFrequency = 1.0f, float time = 0.0f)
+        : center(center), normal(glm::normalize(normal)), size(size), 
+          waveHeight(waveHeight), waveFrequency(waveFrequency), time(time), octaves(4) {
+    }
+    
+    WaterPlane(glm::vec3 center, glm::vec3 normal, float size, Material material, 
+               float waveHeight = 0.2f, float waveFrequency = 1.0f, float time = 0.0f)
+        : center(center), normal(glm::normalize(normal)), size(size),
+          waveHeight(waveHeight), waveFrequency(waveFrequency), time(time), octaves(4) {
+        this->material = material;
+    }
+    
+    void setTime(float t) {
+        time = t;
+    }
+    
+    void setWaveHeight(float h) {
+        waveHeight = h;
+    }
+    
+    void setWaveFrequency(float f) {
+        waveFrequency = f;
+    }
+    
+    float getHeight(float x, float z) const {
+        float noise1 = PerlinNoise::fractalNoise3D(x * waveFrequency * 0.5f, z * waveFrequency * 0.5f, time * 0.3f, octaves, 0.5f);
+        float noise2 = PerlinNoise::fractalNoise3D((x * 0.707f + z * 0.707f) * waveFrequency * 1.2f, (x * -0.707f + z * 0.707f) * waveFrequency * 1.2f, time * 0.4f, octaves - 1, 0.5f);
+        float noise3 = PerlinNoise::fractalNoise3D(x * waveFrequency * 2.0f, z * waveFrequency * 2.0f, time * 0.6f, octaves - 2, 0.5f);
+        float noise4 = PerlinNoise::noise3D(x * waveFrequency * 4.0f, z * waveFrequency * 4.0f, time * 0.8f);
+        float regionNoise = PerlinNoise::noise2D(x * 0.1f, z * 0.1f);
+        float combinedNoise = noise1 * 0.5f + noise2 * 0.25f + noise3 * 0.15f + noise4 * 0.05f + regionNoise * 0.05f;
+        return center.y + combinedNoise * waveHeight;
+    }
+    
+    glm::vec3 getNormal(float x, float z) const {
+        float eps = 0.1f;
+        float heightL = getHeight(x - eps, z);
+        float heightR = getHeight(x + eps, z);
+        float heightD = getHeight(x, z - eps);
+        float heightU = getHeight(x, z + eps);
+        glm::vec3 gradient((heightR - heightL) / (2.0f * eps), 1.0f, (heightU - heightD) / (2.0f * eps));
+        return glm::normalize(gradient);
+    }
+    
+    Hit intersect(Ray ray) {
+        Hit hit;
+        hit.hit = false;
+        
+        if (fabs(ray.direction.y) < 1e-6) return hit;
+        
+        float minY = center.y - waveHeight;
+        float maxY = center.y + waveHeight;
+        float tMin = (minY - ray.origin.y) / ray.direction.y;
+        float tMax = (maxY - ray.origin.y) / ray.direction.y;
+        if (tMin > tMax) {
+            float temp = tMin;
+            tMin = tMax;
+            tMax = temp;
+        }
+        if (tMax < 0.0f || tMin > ray.tMax) return hit;
+        
+        float tStart = glm::max(0.0f, tMin);
+        float tEnd = glm::min(ray.tMax, tMax);
+        float t = (tStart + tEnd) * 0.5f;
+        
+        for (int iter = 0; iter < 10; iter++) {
+            glm::vec3 pos = ray.origin + t * ray.direction;
+            if (fabs(pos.x - center.x) > size || fabs(pos.z - center.z) > size) return hit;
+            
+            float height = getHeight(pos.x, pos.z);
+            float diff = pos.y - height;
+            
+            if (fabs(diff) < 0.001f) {
+                hit.hit = true;
+                hit.distance = t;
+                hit.intersection = pos;
+                hit.intersection.y = height;
+                hit.normal = getNormal(pos.x, pos.z);
+                
+                glm::vec3 up(0.0f, 1.0f, 0.0f);
+                glm::vec3 tangent = glm::normalize(glm::cross(up, hit.normal));
+                if (glm::length(tangent) < 0.1f) tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+                hit.bitangent = glm::normalize(glm::cross(hit.normal, tangent));
+                hit.tangent = glm::normalize(glm::cross(hit.bitangent, hit.normal));
+                
+                float textureScale = 0.1f;
+                hit.u = fmod(pos.x * textureScale, 1.0f);
+                if (hit.u < 0.0f) hit.u += 1.0f;
+                hit.v = fmod(pos.z * textureScale, 1.0f);
+                if (hit.v < 0.0f) hit.v += 1.0f;
+                hit.object = this;
+                return hit;
+            }
+            
+            if (diff > 0.0f) tEnd = t;
+            else tStart = t;
+            t = (tStart + tEnd) * 0.5f;
+        }
+        return hit;
+    }
+};
+
+class Disc : public Object {
+private:
+    glm::vec3 center;
+    glm::vec3 normal;
+    float radius;
+
+public:
+    Disc(const glm::vec3 &center, const glm::vec3 &normal, float radius) 
+        : center(center), normal(glm::normalize(normal)), radius(radius) {
+    }
+    
+    Disc(const glm::vec3 &center, const glm::vec3 &normal, float radius, const Material &mat) 
+        : center(center), normal(glm::normalize(normal)), radius(radius) {
+        material = mat;
+    }
+    
+    bool castsShadow() const override {
+        return false;
+    }
+
+    Hit intersect(Ray ray) {
+        Hit hit;
+        hit.hit = false;
+        
+        float denom = glm::dot(normal, ray.direction);
+        if (fabs(denom) < 1e-6) return hit;
+        
+        glm::vec3 toCenter = center - ray.origin;
+        float t = glm::dot(toCenter, normal) / denom;
+        
+        if (t <= 0.0f || t > ray.tMax) return hit;
+        
+        glm::vec3 intersection = ray.origin + t * ray.direction;
+        glm::vec3 toIntersection = intersection - center;
+        float distSq = glm::dot(toIntersection, toIntersection);
+        
+        if (distSq > radius * radius) return hit;
+        
+        hit.hit = true;
+        hit.distance = t;
+        hit.intersection = intersection;
+        hit.normal = normal;
+        hit.tangent = glm::vec3(0.0f);
+        hit.bitangent = glm::vec3(0.0f);
         hit.object = this;
         
         return hit;
@@ -509,6 +1006,7 @@ public:
                 Hit h = tri.intersect(ray);
                 if(h.hit && h.distance < closest.distance){
                     closest = h;
+                    closest.object = this;
                 }
             }
         }
@@ -522,7 +1020,7 @@ public:
 	
 
 /**
- Light class
+ Light class (point light)
  */
 class Light{
 public:
@@ -535,93 +1033,176 @@ public:
 	}
 };
 
-vector<Light *> lights; ///< A list of lights in the scene
+/**
+ Area Light class (for soft shadows)
+ */
+class AreaLight {
+public:
+    glm::vec3 position;
+    glm::vec3 color;
+    glm::vec3 u;
+    glm::vec3 v;
+    float size;
+    bool isSphere;
+    float attenuationPower;
+    
+    AreaLight(glm::vec3 pos, glm::vec3 col, float s, bool sphere = false)
+        : position(pos), color(col), size(s), isSphere(sphere), attenuationPower(2.0f) {
+        u = glm::vec3(1.0f, 0.0f, 0.0f);
+        v = glm::vec3(0.0f, 0.0f, 1.0f);
+    }
+    
+    AreaLight(glm::vec3 pos, glm::vec3 col, glm::vec3 uDir, glm::vec3 vDir, float s)
+        : position(pos), color(col), u(glm::normalize(uDir)), v(glm::normalize(vDir)), size(s), isSphere(false), attenuationPower(2.0f) {
+    }
+    
+    AreaLight(glm::vec3 pos, glm::vec3 col, glm::vec3 uDir, glm::vec3 vDir, float s, float attenPower)
+        : position(pos), color(col), u(glm::normalize(uDir)), v(glm::normalize(vDir)), size(s), isSphere(false), attenuationPower(attenPower) {
+    }
+    
+    /**
+     * Sample a point on area light
+     */
+    glm::vec3 samplePoint(int seed) const {
+        if (isSphere) {
+            float r1 = ((seed * 1103515245 + 12345) & 0x7fffffff) / 2147483648.0f;
+            float r2 = (((seed + 1) * 1103515245 + 12345) & 0x7fffffff) / 2147483648.0f;
+            
+            float theta = r1 * 2.0f * M_PI;
+            float phi = acosf(2.0f * r2 - 1.0f);
+            
+            glm::vec3 dir(
+                sinf(phi) * cosf(theta),
+                sinf(phi) * sinf(theta),
+                cosf(phi)
+            );
+            
+            return position + dir * size;
+        } else {
+            float r1 = ((seed * 1103515245 + 12345) & 0x7fffffff) / 2147483648.0f;
+            float r2 = (((seed + 1) * 1103515245 + 12345) & 0x7fffffff) / 2147483648.0f;
+            float uOffset = (r1 - 0.5f) * size;
+            float vOffset = (r2 - 0.5f) * size;
+            
+            return position + u * uOffset + v * vOffset;
+        }
+    }
+};
+
+vector<Light *> lights; ///< A list of point lights in the scene
+vector<AreaLight *> areaLights; ///< A list of area lights in the scene
 //glm::vec3 ambient_light(0.1,0.1,0.1);
 // new ambient light
 glm::vec3 ambient_light(0.001,0.001,0.001);
 vector<Object *> objects; ///< A list of all objects in the scene
 
-/**
- * 烟雾体积结构
- */
 struct SmokeVolume {
-    glm::vec3 position;      // 烟雾中心位置
-    glm::vec3 size;          // 烟雾体积大小（椭球）
-    float density;           // 最大密度
-    float age;               // 烟雾年龄（用于动画）
+    glm::vec3 position;
+    glm::vec3 size;
+    float density;
+    float age;
 };
 
-vector<SmokeVolume> smokeVolumes; ///< 烟雾体积列表
+vector<SmokeVolume> smokeVolumes;
 
+void loadTexturesToMesh(Mesh* mesh, const std::string& baseName) {
+    static Texture baseTexture, normalMap, aoMap, roughnessMap;
+    if (baseTexture.load(baseName + "_basecolor.bmp")) mesh->setTexture(&baseTexture);
+    if (normalMap.load(baseName + "_normal.bmp")) mesh->setNormalMap(&normalMap);
+    if (aoMap.load(baseName + "_ao.bmp")) mesh->setAOMap(&aoMap);
+    if (roughnessMap.load(baseName + "_roughness.bmp")) mesh->setRoughnessMap(&roughnessMap);
+}
 
-/**
- * 计算烟雾密度（使用椭球距离场）
- * @param pos 世界空间位置
- * @param smoke 烟雾体积
- * @return 密度值 [0, 1]
- */
+Material createWardMaterial(glm::vec3 diffuse, float roughnessX, float roughnessY) {
+    Material mat;
+    mat.ambient = glm::vec3(0.1f);
+    mat.diffuse = diffuse;
+    mat.specular = glm::vec3(0.5f);
+    mat.shininess = 64.0f;
+    mat.useWard = true;
+    mat.wardRoughnessX = roughnessX;
+    mat.wardRoughnessY = roughnessY;
+    mat.wardSpecular = glm::vec3(0.9f, 0.9f, 1.0f);
+    return mat;
+}
+
+void transformVertices(std::vector<glm::vec3>& verts, float scale, float c, float s) {
+    for (auto &v : verts) {
+        v *= scale;
+        float x = v.x, z = v.z;
+        v.x = c * x + s * z;
+        v.z = -s * x + c * z;
+    }
+}
+
 float getSmokeDensity(glm::vec3 pos, const SmokeVolume& smoke) {
-    // 转换到烟雾局部空间（椭球）
-    glm::vec3 localPos = (pos - smoke.position) / smoke.size;
+    glm::vec3 toCenter = pos - smoke.position;
+    float maxSize = glm::max(glm::max(smoke.size.x, smoke.size.y), smoke.size.z);
+    if (glm::length(toCenter) > maxSize * 1.5f) return 0.0f;
     
-    // 计算到椭球中心的归一化距离
+    glm::vec3 localPos = toCenter / smoke.size;
     float dist = glm::length(localPos);
     
-    // 超出范围则密度为0
-    if (dist > 1.0f) return 0.0f;
+    float noiseScale = 3.0f;
+    float noiseStrength = 0.6f;
+    float noiseTime = smoke.age * 0.4f;
     
-    // 密度衰减：中心密度高，边缘密度低
-    // 使用平滑的衰减函数
-    float density = smoke.density * (1.0f - dist * dist);
-    density = density * density;  // 平方衰减，使边缘更柔和
+    float noise = PerlinNoise::fractalNoise3D(
+        pos.x * noiseScale + smoke.position.x * 0.1f,
+        pos.y * noiseScale + smoke.position.y * 0.1f + noiseTime,
+        pos.z * noiseScale + smoke.position.z * 0.1f,
+        5, 0.5f
+    );
     
-    // 考虑烟雾年龄（随时间扩散）
-    float ageFactor = 1.0f / (1.0f + smoke.age * 0.5f);
-    density *= ageFactor;
+    noise = (noise + 1.0f) * 0.5f;
+    
+    float noiseOffset = (noise - 0.5f) * noiseStrength;
+    float adjustedDist = dist - noiseOffset;
+    
+    if (adjustedDist > 1.0f) return 0.0f;
+    if (adjustedDist < 0.0f) adjustedDist = 0.0f;
+    
+    float baseDensity = smoke.density * (1.0f - adjustedDist * adjustedDist);
+    baseDensity = baseDensity * baseDensity;
+    baseDensity *= 1.0f / (1.0f + smoke.age * 0.5f);
+    
+    float density = baseDensity * (0.7f + noise * 0.3f);
     
     return glm::clamp(density, 0.0f, 1.0f);
 }
 
-/**
- * 体积光线步进 - 计算烟雾的透射和散射
- * @param ray 光线
- * @param maxDistance 最大采样距离
- * @return 烟雾贡献的颜色
- */
-glm::vec3 traceVolumeRay(Ray ray, float maxDistance) {
-    if (smokeVolumes.empty()) return glm::vec3(0.0f);
+glm::vec3 traceVolumeRay(Ray ray, float maxDistance, float& outTransmittance) {
+    if (smokeVolumes.empty()) {
+        outTransmittance = 1.0f;
+        return glm::vec3(0.0f);
+    }
     
-    float stepSize = 0.1f;  // 步进大小
+    float stepSize = 0.2f;
     int maxSteps = (int)(maxDistance / stepSize);
+    float minTransmittance = 0.05f;
     
     glm::vec3 color(0.0f);
-    float transmittance = 1.0f;  // 透射率（光线穿透烟雾的程度）
+    float transmittance = 1.0f;
     
     float t = 0.0f;
-    for (int i = 0; i < maxSteps && transmittance > 0.01f; i++) {
+    for (int i = 0; i < maxSteps && transmittance > minTransmittance; i++) {
         glm::vec3 pos = ray.origin + ray.direction * t;
-        
-        // 累积所有烟雾源的密度
         float totalDensity = 0.0f;
+        
         for (const auto& smoke : smokeVolumes) {
+            glm::vec3 toCenter = pos - smoke.position;
+            float maxSize = glm::max(glm::max(smoke.size.x, smoke.size.y), smoke.size.z);
+            if (glm::length(toCenter) > maxSize * 1.2f) continue;
             totalDensity += getSmokeDensity(pos, smoke);
         }
         
         if (totalDensity > 0.001f) {
-            // 吸收系数（烟雾吸收光线）
             float absorption = totalDensity * stepSize * 2.0f;
-            
-            // 散射系数（烟雾散射光线，使烟雾可见）
             float scattering = totalDensity * stepSize * 0.5f;
             
-            // 更新透射率（Beer-Lambert定律）
             transmittance *= exp(-absorption);
             
-            // 单次散射（简化版，假设光源在相机方向）
-            // 烟雾颜色：灰白色，略带黄色
             glm::vec3 smokeColor(0.7f, 0.65f, 0.6f);
-            
-            // 散射光贡献
             glm::vec3 scatteredLight = smokeColor * scattering;
             color += scatteredLight * transmittance;
         }
@@ -629,11 +1210,12 @@ glm::vec3 traceVolumeRay(Ray ray, float maxDistance) {
         t += stepSize;
     }
     
+    outTransmittance = transmittance;
     return color;
 }
 
 /**
- Function to check if a point is in shadow from a light source
+ Function to check if a point is in shadow from a point light source
  Uses BVH acceleration through Mesh::intersect() which automatically uses BVH for mesh objects
  @param point The point to check
  @param lightPosition The position of the light source
@@ -653,6 +1235,10 @@ bool isInShadow(glm::vec3 point, glm::vec3 lightPosition) {
     // Note: This automatically uses BVH acceleration for Mesh objects,
     // as Mesh::intersect() uses BVH internally when enabled
     for(int k = 0; k < objects.size(); k++){
+        if (!objects[k]->castsShadow()) {
+            continue;
+        }
+        
         Hit hit = objects[k]->intersect(shadowRay);
         // Early exit: if we find any intersection before reaching the light, point is in shadow
         if(hit.hit && hit.distance < shadowRay.tMax && hit.distance > 0.0f) {
@@ -662,39 +1248,271 @@ bool isInShadow(glm::vec3 point, glm::vec3 lightPosition) {
     return false; // Point is not in shadow - no objects block the path to light
 }
 
-/** Function for computing color of an object according to the Phong Model
+/**
+ Function to compute soft shadow factor from an area light source
+ Uses multiple shadow samples to create soft shadows
+ @param point The point to check
+ @param areaLight The area light source
+ @param numSamples Number of samples for soft shadow (more samples = smoother shadows)
+ @return Shadow factor [0, 1], where 0 = fully shadowed, 1 = fully lit
+ */
+float computeSoftShadow(glm::vec3 point, const AreaLight& areaLight, int numSamples = 8) {
+    int unblockedSamples = 0;
+    
+    for (int i = 0; i < numSamples; i++) {
+        glm::vec3 lightPoint = areaLight.samplePoint((int)(point.x * 1000 + point.y * 1000 + point.z * 1000) + i);
+        
+        glm::vec3 lightDirection = lightPoint - point;
+        float lightDistance = glm::length(lightDirection);
+        lightDirection = glm::normalize(lightDirection);
+        
+        // Offset the ray origin slightly along the light direction to avoid self-intersection
+        glm::vec3 offsetPoint = point + lightDirection * 0.001f;
+        Ray shadowRay(offsetPoint, lightDirection);
+        shadowRay.tMax = lightDistance - 0.002f;
+        
+        // Check for intersection
+        bool blocked = false;
+        for(int k = 0; k < objects.size(); k++){
+            if (!objects[k]->castsShadow()) {
+                continue;
+            }
+            
+            Hit hit = objects[k]->intersect(shadowRay);
+            if(hit.hit && hit.distance < shadowRay.tMax && hit.distance > 0.0f) {
+                blocked = true;
+                break;
+            }
+        }
+        
+        if (!blocked) {
+            unblockedSamples++;
+        }
+    }
+    
+    return (float)unblockedSamples / (float)numSamples;
+}
+
+/**
+ * Ward anisotropic reflectance model - compute specular reflection
+ * @param light_direction Light direction (from point to light)
+ * @param view_direction View direction (from point to camera)
+ * @param normal Normal vector
+ * @param tangent Tangent vector (anisotropic direction X)
+ * @param bitangent Bitangent vector (anisotropic direction Y)
+ * @param material Material parameters
+ * @return Ward specular reflection color
+ */
+glm::vec3 WardSpecular(glm::vec3 light_direction, glm::vec3 view_direction, 
+                       glm::vec3 normal, glm::vec3 tangent, glm::vec3 bitangent, 
+                       Material material) {
+    light_direction = glm::normalize(light_direction);
+    view_direction = glm::normalize(view_direction);
+    normal = glm::normalize(normal);
+    tangent = glm::normalize(tangent);
+    bitangent = glm::normalize(bitangent);
+    
+    glm::vec3 halfVector = glm::normalize(light_direction + view_direction);
+    float cosThetaI = glm::clamp(glm::dot(normal, light_direction), 0.0f, 1.0f);
+    float cosThetaR = glm::clamp(glm::dot(normal, view_direction), 0.0f, 1.0f);
+    if (cosThetaI <= 0.0f || cosThetaR <= 0.0f) return glm::vec3(0.0f);
+    
+    float cosThetaH = glm::clamp(glm::dot(normal, halfVector), 0.0f, 1.0f);
+    float sinThetaH = sqrtf(1.0f - cosThetaH * cosThetaH);
+    float tanThetaH = (cosThetaH > 0.001f) ? sinThetaH / cosThetaH : 0.0f;
+    
+    float dotHT = glm::dot(halfVector, tangent);
+    float dotHB = glm::dot(halfVector, bitangent);
+    
+    float alphaX = material.wardRoughnessX;
+    float alphaY = material.wardRoughnessY;
+    float hDotT2 = dotHT * dotHT;
+    float hDotB2 = dotHB * dotHB;
+    float hDotTB2 = hDotT2 + hDotB2;
+    
+    float alpha2 = 0.0f;
+    if (hDotTB2 > 0.001f) {
+        alpha2 = (hDotT2 * alphaX * alphaX + hDotB2 * alphaY * alphaY) / hDotTB2;
+    } else {
+        alpha2 = (alphaX * alphaX + alphaY * alphaY) * 0.5f;
+    }
+    
+    if (alpha2 < 0.001f) alpha2 = 0.001f;
+    
+    float tanThetaH2 = tanThetaH * tanThetaH;
+    float expTerm = expf(-tanThetaH2 / alpha2);
+    
+    float denominator = 4.0f * M_PI * alphaX * alphaY * sqrtf(cosThetaI * cosThetaR);
+    
+    if (denominator < 0.001f) denominator = 0.001f;
+    float wardSpec = material.wardSpecular.r * expTerm / denominator;
+    
+    return material.wardSpecular * glm::vec3(wardSpec);
+}
+
+// Force lighting model: -1=auto, 0=Phong, 1=Ward
+int forceLightingModel = -1;
+
+/** Function for computing color of an object according to the Phong Model (or Ward Model for anisotropic materials)
  @param point A point belonging to the object for which the color is computer
  @param normal A normal vector the the point
  @param view_direction A normalized direction from the point to the viewer/camera
  @param material A material structure representing the material of the object
+ @param tangent Optional tangent vector for Ward model (default: zero vector)
+ @param bitangent Optional bitangent vector for Ward model (default: zero vector)
+ @param object Optional pointer to object for texture access (default: nullptr)
+ @param u Texture coordinate U (default: 0.0)
+ @param v Texture coordinate V (default: 0.0)
 */
-glm::vec3 PhongModel(glm::vec3 point, glm::vec3 normal, glm::vec3 view_direction, Material material){
+glm::vec3 PhongModel(glm::vec3 point, glm::vec3 normal, glm::vec3 view_direction, Material material, 
+                     glm::vec3 tangent = glm::vec3(0.0f), glm::vec3 bitangent = glm::vec3(0.0f),
+                     Object* object = nullptr, float u = 0.0f, float v = 0.0f){
 
 	glm::vec3 color(0.0);
-	for(int light_num = 0; light_num < lights.size(); light_num++){
+	
+	bool isEmissive = (material.specular == glm::vec3(0.0f) && 
+	                   glm::length(material.ambient - material.diffuse) < 0.01f &&
+	                   glm::length(material.ambient) > 0.1f);
+	if (isEmissive) {
+		return glm::clamp(material.ambient, glm::vec3(0.0), glm::vec3(1.0));
+	}
+	float finalShininess = material.shininess;
+	if (object && object->roughnessMap && object->roughnessMap->isLoaded()) {
+		glm::vec3 roughnessSample = object->roughnessMap->sample(u, v);
+		float roughness = (roughnessSample.r + roughnessSample.g + roughnessSample.b) / 3.0f;
+		roughness = glm::clamp(roughness, 0.001f, 1.0f);
 		
-		// Check if point is in shadow from this light
-		if(isInShadow(point, lights[light_num]->position)) {
-			continue; // Skip this light, point is in shadow
+		float roughness4 = roughness * roughness * roughness * roughness;
+		finalShininess = 0.5f / roughness4 - 0.5f;
+		finalShininess = glm::max(finalShininess, 1.0f);
+	}
+	
+	float aoValue = 1.0f;
+	if (object && object->aoMap && object->aoMap->isLoaded()) {
+		glm::vec3 aoSample = object->aoMap->sample(u, v);
+		aoValue = (aoSample.r + aoSample.g + aoSample.b) / 3.0f;
+		aoValue = glm::clamp(aoValue, 0.0f, 1.0f);
+	}
+	
+	glm::vec3 finalNormal = normal;
+	if (object && object->normalMap && object->normalMap->isLoaded() && 
+	    glm::length(tangent) > 0.001f && glm::length(bitangent) > 0.001f) {
+		
+		glm::vec3 normalMapSample = object->normalMap->sample(u, v);
+		glm::vec3 tangentSpaceNormal = normalMapSample * 2.0f - 1.0f;
+		tangentSpaceNormal = glm::normalize(tangentSpaceNormal);
+		
+		tangent = glm::normalize(tangent);
+		bitangent = glm::normalize(bitangent);
+		normal = glm::normalize(normal);
+		
+		tangent = glm::normalize(tangent - glm::dot(tangent, normal) * normal);
+		bitangent = glm::normalize(bitangent - glm::dot(bitangent, normal) * normal);
+		
+		if (glm::dot(glm::cross(tangent, bitangent), normal) < 0.0f) {
+			bitangent = -bitangent;
 		}
+		finalNormal = tangentSpaceNormal.x * tangent + 
+		              tangentSpaceNormal.y * bitangent + 
+		              tangentSpaceNormal.z * normal;
+		finalNormal = glm::normalize(finalNormal);
+	}
+	
+	for(int light_num = 0; light_num < lights.size(); light_num++){
+		if(isInShadow(point, lights[light_num]->position)) continue;
 
 		glm::vec3 light_direction = glm::normalize(lights[light_num]->position - point);
-		glm::vec3 reflected_direction = glm::reflect(-light_direction, normal);
-
-		float NdotL = glm::clamp(glm::dot(normal, light_direction), 0.0f, 1.0f);
-		float VdotR = glm::clamp(glm::dot(view_direction, reflected_direction), 0.0f, 1.0f);
+		float NdotL = glm::clamp(glm::dot(finalNormal, light_direction), 0.0f, 1.0f);
 
 		glm::vec3 diffuse_color = material.diffuse;
+		if (object && object->texture && object->texture->isLoaded()) {
+			diffuse_color = object->texture->sample(u, v);
+		}
 		glm::vec3 diffuse = diffuse_color * glm::vec3(NdotL);
-		glm::vec3 specular = material.specular * glm::vec3(pow(VdotR, material.shininess));
+		
+		glm::vec3 specular;
+		bool useWard = false;
+		if (forceLightingModel == 1) {
+			useWard = (glm::length(tangent) > 0.001f && glm::length(bitangent) > 0.001f);
+		} else if (forceLightingModel == 0) {
+			useWard = false;
+		} else {
+			useWard = (material.useWard && glm::length(tangent) > 0.001f && glm::length(bitangent) > 0.001f);
+		}
+		
+		if (useWard) {
+			specular = WardSpecular(light_direction, view_direction, finalNormal, tangent, bitangent, material);
+		} else {
+			glm::vec3 reflected_direction = glm::reflect(-light_direction, finalNormal);
+			float VdotR = glm::clamp(glm::dot(view_direction, reflected_direction), 0.0f, 1.0f);
+			specular = material.specular * glm::vec3(pow(VdotR, finalShininess));
+		}
 		
         float r = glm::distance(point,lights[light_num]->position);
         r = max(r, 0.1f);
-        color += lights[light_num]->color * (diffuse + specular) / r/r;
+        color += lights[light_num]->color * (diffuse + specular) * 0.3f / (r * r);
 	}
-	color += ambient_light * material.ambient;
+	
+	for(int light_num = 0; light_num < areaLights.size(); light_num++){
+		const AreaLight& areaLight = *areaLights[light_num];
+		float shadowFactor = computeSoftShadow(point, areaLight, 8);
+		
+		if (shadowFactor > 0.0f) {
+			glm::vec3 light_direction = glm::normalize(areaLight.position - point);
+			float NdotL = glm::clamp(glm::dot(finalNormal, light_direction), 0.0f, 1.0f);
+
+			glm::vec3 diffuse_color = material.diffuse;
+			if (object && object->texture && object->texture->isLoaded()) {
+				diffuse_color = object->texture->sample(u, v);
+			}
+			glm::vec3 diffuse = diffuse_color * glm::vec3(NdotL);
+			
+			glm::vec3 specular;
+			bool useWard = false;
+			if (forceLightingModel == 1) {
+				useWard = (glm::length(tangent) > 0.001f && glm::length(bitangent) > 0.001f);
+			} else if (forceLightingModel == 0) {
+				useWard = false;
+			} else {
+				useWard = (material.useWard && glm::length(tangent) > 0.001f && glm::length(bitangent) > 0.001f);
+			}
+			
+			if (useWard) {
+				specular = WardSpecular(light_direction, view_direction, finalNormal, tangent, bitangent, material);
+			} else {
+				glm::vec3 reflected_direction = glm::reflect(-light_direction, finalNormal);
+				float VdotR = glm::clamp(glm::dot(view_direction, reflected_direction), 0.0f, 1.0f);
+				specular = material.specular * glm::vec3(pow(VdotR, finalShininess));
+			}
+			
+			float r = glm::distance(point, areaLight.position);
+			r = max(r, 0.1f);
+			float areaFactor = areaLight.isSphere ? (4.0f * M_PI * areaLight.size * areaLight.size) : (areaLight.size * areaLight.size);
+			float intensity = 2.0f;
+			float attenuation = powf(r, areaLight.attenuationPower);
+			color += areaLight.color * (diffuse + specular) * intensity * shadowFactor / attenuation;
+		}
+	}
+	
+	color += ambient_light * material.ambient * aoValue;
 	color = glm::clamp(color, glm::vec3(0.0), glm::vec3(1.0));
 	return color;
+}
+
+/**
+ * Generate random sample point on aperture (for depth-of-field effect)
+ * @param aperture Aperture radius
+ * @param seed Random seed (based on pixel position)
+ * @return Random point on aperture (near camera plane, Z=0)
+ */
+glm::vec3 sampleAperture(float aperture, int seed) {
+    float r1 = ((seed * 1103515245 + 12345) & 0x7fffffff) / 2147483648.0f;
+    float r2 = (((seed + 1) * 1103515245 + 12345) & 0x7fffffff) / 2147483648.0f;
+    
+    float r = sqrtf(r1) * aperture;
+    float theta = r2 * 2.0f * M_PI;
+    
+    return glm::vec3(r * cosf(theta), r * sinf(theta), 0.0f);
 }
 
 /**
@@ -717,302 +1535,226 @@ glm::vec3 trace_ray(Ray ray){
 
 	glm::vec3 color(0.0);
 	
-	// 计算体积烟雾效果（从相机到物体或背景）
 	float volumeDistance = closest_hit.hit ? closest_hit.distance : 50.0f;
-	glm::vec3 volumeColor = traceVolumeRay(ray, volumeDistance);
+	float transmittance = 1.0f;
+	glm::vec3 volumeColor = traceVolumeRay(ray, volumeDistance, transmittance);
 	
 	if(closest_hit.hit){
-		// 计算物体颜色
-		glm::vec3 objectColor = PhongModel(closest_hit.intersection, closest_hit.normal, glm::normalize(-ray.direction), closest_hit.object->getMaterial());
+		glm::vec3 tangent = closest_hit.tangent;
+		glm::vec3 bitangent = closest_hit.bitangent;
+		glm::vec3 objectColor = PhongModel(closest_hit.intersection, closest_hit.normal, glm::normalize(-ray.direction), closest_hit.object->getMaterial(), tangent, bitangent, closest_hit.object, closest_hit.u, closest_hit.v);
 		
-		// 计算从相机到物体的透射率（烟雾对物体的遮挡）
-		// 通过计算体积中的总密度来估算透射率
-		float totalDensity = 0.0f;
-		float stepSize = 0.1f;
-		int steps = (int)(closest_hit.distance / stepSize);
-		
-		for (int i = 0; i < steps; i++) {
-            float t = i * stepSize;
-            glm::vec3 pos = ray.origin + ray.direction * t;
-            
-            for (const auto& smoke : smokeVolumes) {
-                totalDensity += getSmokeDensity(pos, smoke) * stepSize;
-            }
-        }
-        
-        // Beer-Lambert定律：透射率 = exp(-吸收系数 * 距离)
-        float transmittance = exp(-totalDensity * 2.0f);
-		
-		// 最终颜色 = 体积散射 + 物体颜色 * 透射率
 		color = volumeColor + objectColor * transmittance;
 	}else{
-		// 背景颜色 = 体积散射
 		color = volumeColor;
 	}
 	
 	return color;
 }
-/**
- Function defining the scene
- @param elevationAngle 炮管抬起角度（度），0表示水平，负值表示向上抬起
- @param recoilDistance 炮管缩退距离（沿炮管反方向），用于模拟后坐力效果
- @param smokeIntensity 烟雾强度（0-1），0表示无烟雾，1表示最大烟雾
- */
-void sceneDefinition (float elevationAngle = -20.0f, float recoilDistance = 0.0f, float smokeIntensity = 0.0f){
-	// 清空之前的烟雾体积
+// Scene definition
+void sceneDefinition (float elevationAngle = -20.0f, float recoilDistance = 0.0f, float smokeIntensity = 0.0f, 
+                       float waterTime = 0.0f, float waveHeight = 0.15f, float waveFrequency = 0.5f){
 	smokeVolumes.clear();
+	areaLights.clear();
+	lights.push_back(new Light(glm::vec3(0, 5, 10), glm::vec3(0.6, 0.6, 0.6)));
 	
-	Material green_diffuse;
-	green_diffuse.ambient = glm::vec3(0.7f, 0.9f, 0.7f);
-	green_diffuse.diffuse = glm::vec3(0.7f, 0.9f, 0.7f);
-
-	//Material green_diffuse;
-	green_diffuse.ambient = glm::vec3(0.03f, 0.1f, 0.03f);
-	green_diffuse.diffuse = glm::vec3(0.3f, 1.0f, 0.3f);
-
-	
-	lights.push_back(new Light(glm::vec3(0, 26, 5), glm::vec3(1.0, 1.0, 1.0)));
-	lights.push_back(new Light(glm::vec3(0, 1, 12), glm::vec3(0.1)));
-	lights.push_back(new Light(glm::vec3(0, 5, 1), glm::vec3(0.4)));
-	
-    Material red_diffuse;
-    red_diffuse.ambient = glm::vec3(0.09f, 0.06f, 0.06f);
-    red_diffuse.diffuse = glm::vec3(0.9f, 0.6f, 0.6f);
-        
-    Material blue_diffuse;
-    blue_diffuse.ambient = glm::vec3(0.06f, 0.06f, 0.09f);
-    blue_diffuse.diffuse = glm::vec3(0.6f, 0.6f, 0.9f);
-    // Removed floor, back wall, left wall, right wall to keep only the mesh
     Material gray_diffuse;
     gray_diffuse.ambient = glm::vec3(0.07f);
     gray_diffuse.diffuse = glm::vec3(0.7f);
     gray_diffuse.specular = glm::vec3(0.2f);
     gray_diffuse.shininess = 32.0f;
 
-    // 现在场景中加载两个网格：barrel 和 turret
-    // -------------------------
-    // 公共缩放与旋转参数（可根据需要调整）
+    Material waterMaterial;
+    waterMaterial.ambient = glm::vec3(0.05f, 0.1f, 0.15f);
+    waterMaterial.diffuse = glm::vec3(0.2f, 0.4f, 0.6f);
+    waterMaterial.specular = glm::vec3(0.8f, 0.9f, 1.0f);
+    waterMaterial.shininess = 128.0f;
+    
+    WaterPlane* water = new WaterPlane(
+        glm::vec3(0.0f, -3.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        50.0f,
+        waterMaterial,
+        waveHeight,
+        waveFrequency,
+        waterTime
+    );
+    
+    static Texture waterTexture;
+    if (waterTexture.load("./water2.bmp")) {
+        water->setTexture(&waterTexture);
+    }
+    
+    objects.push_back(water);
+
     const float meshScale = 0.4f; 
-    const float angleDeg  = 135.0f;    // 围绕 Y 轴的水平旋转
+    const float angleDeg  = 135.0f;
     const float angleRad  = glm::radians(angleDeg);
     const float c = std::cos(angleRad);
     const float s = std::sin(angleRad);
 
-    // ---------- 加载 barrel ----------
     {
         std::vector<glm::vec3> verts; 
         std::vector<glm::ivec3> faces;
         loadOBJ("./meshes/barrel.obj", verts, faces);
 
-        // 计算炮管长度（沿Z轴方向，考虑缩放）
-        float barrelLength = 0.0f;
+        float barrelLength = 0.0f, maxZ = 0.0f;
         if (!verts.empty()) {
             float minZ = verts[0].z;
-            float maxZ = verts[0].z;
+            maxZ = verts[0].z;
             for (const auto &v : verts) {
                 if (v.z < minZ) minZ = v.z;
                 if (v.z > maxZ) maxZ = v.z;
             }
-            barrelLength = (maxZ - minZ) * meshScale;  // 考虑缩放后的长度
+            barrelLength = (maxZ - minZ) * meshScale;
         }
 
-        // 炮管的基准平移（连接点附近）
         glm::vec3 T_barrel_base(-0.2f, -2.0f, 15.4f);
-        // 假设炮管在本地坐标中沿 +Z 轴指向前方，则经过相同的 Y 轴旋转后，
-        // 世界空间中的指向方向为 (s, 0, c)
         glm::vec3 forwardDir(s, 0.0f, c);
         forwardDir = glm::normalize(forwardDir);
         
-        // 先计算旋转轴（红色圆柱体的轴心）
-        // 添加圆柱体：高度轴垂直于炮管方向（横过来）
-        // 炮管方向是 (s, 0, c)，在XZ平面上
-        // 垂直于炮管方向且在XZ平面内的向量是 (-c, 0, s)
-        glm::vec3 cylinderAxis(-c, 0.0f, s);  // 高度轴横过来，垂直于炮管方向
-        cylinderAxis = glm::normalize(cylinderAxis);  // 确保归一化
-        // 沿炮管方向平移 3.0f，然后向炮管反方向平移 0.3f
-        // 向上平移圆柱体，使其与炮管相交（炮管在Y=-2.0f附近，圆柱体中心需要与炮管中心对齐）
+        glm::vec3 cylinderAxis(-c, 0.0f, s);
+        cylinderAxis = glm::normalize(cylinderAxis);
         glm::vec3 cylinderCenter = T_barrel_base + forwardDir * 3.0f - forwardDir * 0.3f;
-        cylinderCenter.y += 0.4f;  // 向上平移0.5f后向下0.1f，净向上0.4f
+        cylinderCenter.y += 0.4f;
         
-        // 计算旋转轴心（红色圆柱体的轴心，即炮耳位置）
         glm::vec3 rotationAxisPoint(cylinderCenter.x, T_barrel_base.y, cylinderCenter.z);
-        glm::vec3 rotationAxis = cylinderAxis;  // 旋转轴方向（炮耳轴方向）
-        
-        // 计算绕旋转轴旋转的旋转矩阵
-        // elevationAngle参数：向上抬起角度（负值表示向上）
+        glm::vec3 rotationAxis = cylinderAxis;
         float angleRad = glm::radians(elevationAngle);
         
-        // 使用Rodrigues旋转公式构建旋转矩阵
         glm::vec3 axis = glm::normalize(rotationAxis);
         float cosA = cosf(angleRad);
         float sinA = sinf(angleRad);
         
-        // Rodrigues旋转矩阵: R = I + sin(θ)[k]× + (1-cos(θ))[k]×²
         glm::mat3 K(0.0f, -axis.z, axis.y,
                     axis.z, 0.0f, -axis.x,
                     -axis.y, axis.x, 0.0f);
         glm::mat3 K2 = K * K;
         glm::mat3 rotationMatrix = glm::mat3(1.0f) + sinA * K + (1.0f - cosA) * K2;
         
-        // offset 为沿着炮管指向方向移动的距离（>0 往炮口方向，<0 往反方向）
-        const float barrelOffset = 0.3f; // 你可以根据效果自行调整这个值
-        // 计算炮管位置：基础位置 + 偏移 - 缩退距离（向后移动）
+        const float barrelOffset = 0.3f;
         glm::vec3 T_barrel = T_barrel_base + forwardDir * barrelOffset - forwardDir * recoilDistance;
         
         std::vector<glm::vec3> transformedVerts = verts;
         for (auto &v : transformedVerts) {
-            // 缩放
             v *= meshScale;
-            // 水平旋转
-            float x = v.x;
-            float z = v.z;
+            float x = v.x, z = v.z;
             v.x = c * x + s * z;
             v.z = -s * x + c * z;
-            
-            // 计算顶点在最终位置（相对于T_barrel）
             glm::vec3 vWorld = T_barrel + v;
-            
-            // 计算相对于旋转轴心的位置
             glm::vec3 vRelative = vWorld - rotationAxisPoint;
-            
-            // 绕旋转轴旋转
-            glm::vec3 vRotated = rotationMatrix * vRelative;
-            
-            // 计算旋转后的世界位置
-            glm::vec3 vWorldRotated = rotationAxisPoint + vRotated;
-            
-            // 转换回相对于T_barrel的局部坐标
-            v = vWorldRotated - T_barrel;
+            v = rotationAxisPoint + rotationMatrix * vRelative - T_barrel;
         }
         
         if (!transformedVerts.empty() && !faces.empty()) {
-            objects.push_back(new Mesh(transformedVerts, faces, gray_diffuse, T_barrel));
+            Mesh* barrelMesh = new Mesh(transformedVerts, faces, gray_diffuse, T_barrel);
+            loadTexturesToMesh(barrelMesh, "./Sci-fi_Metal_Walkway_001");
+            objects.push_back(barrelMesh);
         }
         
-        float cylinderRadius = 0.04f;  // 圆柱体半径（减小五倍）
-        float cylinderHeight = 10.0f;  // 圆柱体高度
-        
-        Material cylinderMaterial;
-        cylinderMaterial.ambient = glm::vec3(0.1f, 0.1f, 0.8f);
-        cylinderMaterial.diffuse = glm::vec3(0.2f, 0.2f, 0.9f);
-        cylinderMaterial.specular = glm::vec3(0.5f);
-        cylinderMaterial.shininess = 64.0f;
-        
-        objects.push_back(new Cylinder(cylinderCenter, cylinderAxis, cylinderRadius, cylinderHeight, cylinderMaterial));
-        
-        // 添加烟雾效果（在炮口位置）
         if (smokeIntensity > 0.0f) {
-            // 计算旋转后的炮管方向
-            glm::vec3 barrelDirection = forwardDir;
-            glm::vec3 barrelDirRotated = rotationMatrix * barrelDirection;
-            glm::vec3 rotatedBarrelDirection = glm::normalize(barrelDirRotated);
+            glm::vec3 rotatedBarrelDirection = glm::normalize(rotationMatrix * forwardDir);
+            glm::vec3 muzzleLocalPos(0.0f, 0.0f, maxZ * meshScale);
+            glm::vec3 muzzleRotated(c * muzzleLocalPos.x + s * muzzleLocalPos.z, muzzleLocalPos.y, -s * muzzleLocalPos.x + c * muzzleLocalPos.z);
+            glm::vec3 muzzlePosition = rotationAxisPoint + rotationMatrix * (T_barrel + muzzleRotated - rotationAxisPoint);
             
-            // 计算炮口位置：从炮管模型的前端（maxZ）计算
-            // 假设炮管模型沿+Z轴方向，炮口在Z的最大值处
-            float maxZ = 0.0f;
-            if (!verts.empty()) {
-                for (const auto &v : verts) {
-                    if (v.z > maxZ) maxZ = v.z;
+            glm::vec3 flameColor(1.0f, 0.6f, 0.1f);
+            float flameIntensity = smokeIntensity;
+            
+            if (flameIntensity > 0.0f) {
+                glm::vec3 flameNormal = rotatedBarrelDirection;
+                glm::vec3 up(0.0f, 1.0f, 0.0f);
+                glm::vec3 flameU = glm::normalize(glm::cross(flameNormal, up));
+                if (glm::length(flameU) < 0.1f) {
+                    flameU = glm::normalize(glm::cross(flameNormal, glm::vec3(1.0f, 0.0f, 0.0f)));
                 }
+                glm::vec3 flameV = glm::normalize(glm::cross(flameNormal, flameU));
+                float flameSize = 0.3f + flameIntensity * 0.4f;
+                
+                glm::vec3 flameBrightness = flameColor * (2.0f + flameIntensity * 3.0f);
+                areaLights.push_back(new AreaLight(muzzlePosition, flameBrightness, flameU, flameV, flameSize, 2.0f));
+                
+                Material flameMaterial;
+                flameMaterial.ambient = flameBrightness;
+                flameMaterial.diffuse = flameBrightness;
+                flameMaterial.specular = glm::vec3(0.0f);
+                flameMaterial.shininess = 1.0f;
+                objects.push_back(new Disc(muzzlePosition + rotatedBarrelDirection * 0.05f, flameNormal, flameSize, flameMaterial));
             }
             
-            // 炮口在模型局部坐标系中的位置（相对于T_barrel）
-            // 炮管模型沿+Z轴，炮口在maxZ处
-            glm::vec3 muzzleLocalPos(0.0f, 0.0f, maxZ * meshScale);
-            
-            // 应用与炮管顶点相同的变换：
-            // 1. 水平旋转（Y轴旋转）
-            float x = muzzleLocalPos.x;
-            float z = muzzleLocalPos.z;
-            glm::vec3 muzzleRotated(c * x + s * z, muzzleLocalPos.y, -s * x + c * z);
-            
-            // 2. 计算相对于旋转轴心的位置
-            glm::vec3 muzzleWorld = T_barrel + muzzleRotated;  // 先计算未旋转的世界位置
-            glm::vec3 muzzleRelative = muzzleWorld - rotationAxisPoint;
-            
-            // 3. 应用俯仰旋转（绕炮耳轴）
-            glm::vec3 muzzleRotated2 = rotationMatrix * muzzleRelative;
-            
-            // 4. 最终炮口位置
-            glm::vec3 muzzlePosition = rotationAxisPoint + muzzleRotated2;
-            
-            // 创建多个烟雾体积，形成连续的烟雾云
-            int numSmokeVolumes = 3 + (int)(smokeIntensity * 5);  // 3-8个烟雾体积
-            
+            int numSmokeVolumes = 1 + (int)(smokeIntensity * 2);
             for (int i = 0; i < numSmokeVolumes; i++) {
                 float t = (float)i / (float)(numSmokeVolumes - 1);
-                
-                // 烟雾向上扩散（热空气上升）
-                glm::vec3 upDirection(0.0f, 1.0f, 0.0f);
-                float height = t * smokeIntensity * 1.5f;  // 最大高度
-                
-                // 向前方也有一定扩散（炮口方向）
-                float forwardDistance = t * smokeIntensity * 0.8f;
-                
-                // 水平扩散（烟雾扩散）
+                float angle = t * 4.0f * M_PI;
                 float horizontalSpread = t * t * smokeIntensity * 0.6f;
                 
-                // 计算烟雾位置
-                glm::vec3 smokePos = muzzlePosition 
-                    + upDirection * height
-                    + rotatedBarrelDirection * forwardDistance;
-                
-                // 添加一些随机偏移（使烟雾更自然）
-                float angle = t * 4.0f * M_PI;
+                glm::vec3 smokePos = muzzlePosition + 
+                    glm::vec3(0.0f, 1.0f, 0.0f) * (t * smokeIntensity * 1.5f) +
+                    rotatedBarrelDirection * (t * smokeIntensity * 0.8f);
                 smokePos.x += cosf(angle) * horizontalSpread;
                 smokePos.z += sinf(angle) * horizontalSpread;
                 
-                // 烟雾大小：底层小，上层大（扩散）
-                glm::vec3 smokeSize(
-                    0.3f + t * smokeIntensity * 0.8f,
-                    0.4f + t * smokeIntensity * 1.0f,
-                    0.3f + t * smokeIntensity * 0.8f
-                );
-                
-                // 烟雾密度：底层高，上层低（扩散变淡）
-                float smokeDensity = smokeIntensity * (1.0f - t * 0.6f);
-                
-                // 烟雾年龄：用于动画效果
-                float smokeAge = t * 0.5f;
-                
                 SmokeVolume smoke;
                 smoke.position = smokePos;
-                smoke.size = smokeSize;
-                smoke.density = smokeDensity;
-                smoke.age = smokeAge;
-                
+                smoke.size = glm::vec3(0.3f + t * smokeIntensity * 0.8f, 0.4f + t * smokeIntensity * 1.0f, 0.3f + t * smokeIntensity * 0.8f);
+                smoke.density = smokeIntensity * (1.0f - t * 0.6f);
+                smoke.age = t * 0.5f;
                 smokeVolumes.push_back(smoke);
             }
         }
         
-        // 输出计算结果（可选，用于调试）
-        // cout << "直线起点: (" << intersectionPoint.x << ", " << intersectionPoint.y << ", " << intersectionPoint.z << ")" << endl;
-        // cout << "直线方向: (" << cylinderAxis.x << ", " << cylinderAxis.y << ", " << cylinderAxis.z << ")" << endl;
+        
     }
 
-    // ---------- 加载 turret ----------
     {
         std::vector<glm::vec3> verts; 
         std::vector<glm::ivec3> faces;
         loadOBJ("./meshes/turret.obj", verts, faces);
 
         std::vector<glm::vec3> transformedVerts = verts;
-        for (auto &v : transformedVerts) {
-            // 缩放
-            v *= meshScale;
-            // 水平旋转
-            float x = v.x;
-            float z = v.z;
-            v.x = c * x + s * z;
-            v.z = -s * x + c * z;
-        }
-
-        // 炮塔作为主体，稍微高一点
+        transformVertices(transformedVerts, meshScale, c, s);
         glm::vec3 T_turret(0.0f, -2.0f, 15.0f);
         if (!transformedVerts.empty() && !faces.empty()) {
-            objects.push_back(new Mesh(transformedVerts, faces, gray_diffuse, T_turret));
+            Mesh* turretMesh = new Mesh(transformedVerts, faces, gray_diffuse, T_turret);
+            loadTexturesToMesh(turretMesh, "./Sci-fi_Metal_Walkway_001");
+            objects.push_back(turretMesh);
         }
     }
+    
+    Material wardMaterial1 = createWardMaterial(glm::vec3(0.3f, 0.3f, 0.4f), 0.05f, 0.25f);
+    Material wardMaterial2 = createWardMaterial(glm::vec3(0.3f, 0.3f, 0.4f), 0.25f, 0.05f);
+    
+    glm::vec3 sphere1Pos(-3.0f, 2.0f, 22.0f);
+    glm::vec3 sphere2Pos(3.0f, 2.0f, 22.0f);
+    float sphereRadius = 0.8f;
+    
+    Sphere* sphere1 = new Sphere(sphere1Pos, sphereRadius, wardMaterial1);
+    Sphere* sphere2 = new Sphere(sphere2Pos, sphereRadius, wardMaterial2);
+    
+    objects.push_back(sphere1);
+    objects.push_back(sphere2);
+    
+    glm::vec3 moonPosition(-15.0f, sphere1Pos.y + 8.0f, sphere1Pos.z);
+    glm::vec3 moonColor(1.0f, 0.95f, 0.8f);
+    float moonIntensity = 0.23f;
+    float moonSize = 1.5f;
+    
+    glm::vec3 moonNormal = glm::normalize(glm::vec3(0.0f) - moonPosition);
+    glm::vec3 moonU = glm::normalize(glm::cross(moonNormal, glm::vec3(0.0f, 1.0f, 0.0f)));
+    if (glm::length(moonU) < 0.1f) {
+        moonU = glm::normalize(glm::cross(moonNormal, glm::vec3(1.0f, 0.0f, 0.0f)));
+    }
+    glm::vec3 moonV = glm::normalize(glm::cross(moonU, moonNormal));
+    glm::vec3 moonBrightness = moonColor * moonIntensity * 1.4f;
+    
+    areaLights.push_back(new AreaLight(moonPosition, moonColor * moonIntensity, moonU, moonV, moonSize, 1.2f));
+    
+    Material moonMaterial;
+    moonMaterial.ambient = moonBrightness;
+    moonMaterial.diffuse = moonBrightness;
+    moonMaterial.specular = glm::vec3(0.0f);
+    moonMaterial.shininess = 1.0f;
+    objects.push_back(new Disc(moonPosition, moonNormal, moonSize, moonMaterial));
 }
 glm::vec3 toneMapping(glm::vec3 intensity){
 	float gamma = 1.0/2.0;
@@ -1020,178 +1762,150 @@ glm::vec3 toneMapping(glm::vec3 intensity){
 	return glm::clamp(alpha * glm::pow(intensity, glm::vec3(gamma)), glm::vec3(0.0), glm::vec3(1.0));
 }
 
-// Test function for --more: render 6 configurations without saving images
-void renderMoreTest() {
-    cout << "=== Rendering 6 Mesh Configurations ===" << endl;
-    cout << "Testing with resolution (1280x720)..." << endl << endl;
+// Render frame
+void renderFrame(Image& image, int width, int height, float fov, bool useAntiAliasing = true, bool useDepthOfField = true, float apertureSize = 0.1f, float focalDist = 15.0f) {
+    float s = 2*tan(0.5*fov/180*M_PI)/width;
+    float X = -s * width / 2;
+    float Y = s * height / 2;
     
-    ofstream csvFile("performance_data.csv");
-    csvFile << "TriangleCount,TimeSeconds" << endl;
+    int samplesPerPixel = useAntiAliasing ? 4 : 1;
+    const float invSamples = 1.0f / samplesPerPixel;
+    const float focalDistance = focalDist;
+    const float aperture = useDepthOfField ? apertureSize : 0.0f;
     
-    vector<string> testConfigs;
-    // 当前只有一个配置：barrel + turret 组合
-    testConfigs.push_back("barrel_turret");
-    
-    int width = 1280;
-    int height = 720;
-    float fov = 90;
-    
-    for (size_t configIdx = 0; configIdx < testConfigs.size(); configIdx++) {
-        const string &config = testConfigs[configIdx];
-        
-        // Clear previous scene
-        for (size_t i = 0; i < objects.size(); i++) delete objects[i];
-        for (size_t i = 0; i < lights.size(); i++) delete lights[i];
-        objects.clear();
-        lights.clear();
-        
-        // Setup lights
-        lights.push_back(new Light(glm::vec3(0, 26, 5), glm::vec3(1.0, 1.0, 1.0)));
-        lights.push_back(new Light(glm::vec3(0, 1, 12), glm::vec3(0.1)));
-        lights.push_back(new Light(glm::vec3(0, 5, 1), glm::vec3(0.4)));
-        
-        // Setup planes
-        Material green_diffuse;
-        green_diffuse.ambient = glm::vec3(0.03f, 0.1f, 0.03f);
-        green_diffuse.diffuse = glm::vec3(0.3f, 1.0f, 0.3f);
-        Material red_diffuse;
-        red_diffuse.ambient = glm::vec3(0.09f, 0.06f, 0.06f);
-        red_diffuse.diffuse = glm::vec3(0.9f, 0.6f, 0.6f);
-        Material blue_diffuse;
-        blue_diffuse.ambient = glm::vec3(0.06f, 0.06f, 0.09f);
-        blue_diffuse.diffuse = glm::vec3(0.6f, 0.6f, 0.9f);
-        // Removed floor, back wall, left wall, right wall for performance test as well
-        
-        Material gray_diffuse;
-        gray_diffuse.ambient = glm::vec3(0.07f);
-        gray_diffuse.diffuse = glm::vec3(0.7f);
-        gray_diffuse.specular = glm::vec3(0.2f);
-        gray_diffuse.shininess = 32.0f;
-        
-        int totalTriangles = 0;
-
-        // 加载 barrel + turret 的性能测试配置
-        if (config == "barrel_turret") {
-            const float meshScale = 0.1f;
-            const float angleDeg = 135.0f;
-            const float angleRad = glm::radians(angleDeg);
-            const float c = std::cos(angleRad);
-            const float s = std::sin(angleRad);
-
-            // barrel
-            {
-                std::vector<glm::vec3> verts; 
-                std::vector<glm::ivec3> faces;
-                loadOBJ("./meshes/barrel.obj", verts, faces);
-
-                std::vector<glm::vec3> transformedVerts = verts;
-                for (auto &v : transformedVerts) {
-                    v *= meshScale;
-                    float x = v.x;
-                    float z = v.z;
-                    v.x = c * x + s * z;
-                    v.z = -s * x + c * z;
+    for(int i = 0; i < width ; i++) {
+        for(int j = 0; j < height ; j++){
+            glm::vec3 color(0.0f);
+            
+            if (useAntiAliasing) {
+                int sampleIndex = 0;
+                for (int sy = 0; sy < 2; sy++) {
+                    for (int sx = 0; sx < 2; sx++) {
+                        float offsetX = (sx + 0.5f) * 0.5f - 0.5f;
+                        float offsetY = (sy + 0.5f) * 0.5f - 0.5f;
+                        
+                        float dx = X + (i + offsetX) * s;
+                        float dy = Y - (j + offsetY) * s;
+                        glm::vec3 originalDirection = glm::normalize(glm::vec3(dx, dy, 1.0f));
+                        
+                        Ray ray;
+                        if (useDepthOfField && aperture > 0.0f) {
+                            glm::vec3 focalPoint = originalDirection * focalDistance;
+                            int seed = (i * height + j) * samplesPerPixel + sampleIndex;
+                            glm::vec3 apertureOffset = sampleAperture(aperture, seed);
+                            glm::vec3 rayDirection = glm::normalize(focalPoint - apertureOffset);
+                            ray = Ray(apertureOffset, rayDirection);
+                        } else {
+                            ray = Ray(glm::vec3(0.0f), originalDirection);
+                        }
+                        
+                        color += trace_ray(ray);
+                        sampleIndex++;
+                    }
                 }
-
-                // 与主场景类似的相对位置，让炮管与炮塔在测试场景中也保持连接
-                glm::vec3 T_barrel_base(0.0f, -2.4f, 10.4f);
-                glm::vec3 forwardDir(s, 0.0f, c);
-                forwardDir = glm::normalize(forwardDir);
-                const float barrelOffset = 0.5f; // 与主场景使用相同的偏移
-                glm::vec3 T = T_barrel_base + forwardDir * barrelOffset;
-                if (!transformedVerts.empty() && !faces.empty()) {
-                    Mesh *mesh = new Mesh(transformedVerts, faces, gray_diffuse, T, true);
-                    objects.push_back(mesh);
-                    totalTriangles += mesh->GetTriangleCount();
-                }
-            }
-
-            // turret
-            {
-                std::vector<glm::vec3> verts; 
-                std::vector<glm::ivec3> faces;
-                loadOBJ("./meshes/turret.obj", verts, faces);
-
-                std::vector<glm::vec3> transformedVerts = verts;
-                for (auto &v : transformedVerts) {
-                    v *= meshScale;
-                    float x = v.x;
-                    float z = v.z;
-                    v.x = c * x + s * z;
-                    v.z = -s * x + c * z;
-                }
-
-                glm::vec3 T(0.0f, -2.0f, 10.0f);
-                if (!transformedVerts.empty() && !faces.empty()) {
-                    Mesh *mesh = new Mesh(transformedVerts, faces, gray_diffuse, T, true);
-                    objects.push_back(mesh);
-                    totalTriangles += mesh->GetTriangleCount();
-                }
-            }
-        }
-        
-        cout << "Rendering configuration: " << config << " (" << totalTriangles << " triangles)" << endl;
-        
-        // Render and measure time (without saving image)
-        clock_t t = clock();
-        
-        float s = 2*tan(0.5*fov/180*M_PI)/width;
-        float X = -s * width / 2;
-        float Y = s * height / 2;
-        
-        int sampleCount = 0;
-        for(int i = 0; i < width; i++) {
-            for(int j = 0; j < height; j++) {
-                float dx = X + i*s + s/2;
-                float dy = Y - j*s - s/2;
-                float dz = 1;
+                color *= invSamples;
+            } else {
+                float dx = X + i * s;
+                float dy = Y - j * s;
+                glm::vec3 originalDirection = glm::normalize(glm::vec3(dx, dy, 1.0f));
                 
-                glm::vec3 origin(0, 0, 0);
-                glm::vec3 direction(dx, dy, dz);
-                direction = glm::normalize(direction);
+                Ray ray;
+                if (useDepthOfField && aperture > 0.0f) {
+                    glm::vec3 focalPoint = originalDirection * focalDistance;
+                    int seed = i * height + j;
+                    glm::vec3 apertureOffset = sampleAperture(aperture, seed);
+                    glm::vec3 rayDirection = glm::normalize(focalPoint - apertureOffset);
+                    ray = Ray(apertureOffset, rayDirection);
+                } else {
+                    ray = Ray(glm::vec3(0.0f), originalDirection);
+                }
                 
-                Ray ray(origin, direction);
-                trace_ray(ray);  // Render but don't save
-                sampleCount++;
+                color = trace_ray(ray);
             }
+            image.setPixel(i, j, toneMapping(color));
         }
-        
-        t = clock() - t;
-        float timeSeconds = ((float)t) / CLOCKS_PER_SEC;
-        float fps = sampleCount / timeSeconds;
-        
-        cout << "  Time: " << timeSeconds << " seconds" << endl;
-        cout << "  FPS: " << fps << endl;
-        cout << "  Samples: " << sampleCount << endl << endl;
-        
-        // Write to CSV file
-        csvFile << totalTriangles << "," << timeSeconds << endl;
     }
-    
-    csvFile.close();
-    cout << "Performance data saved to performance_data.csv" << endl;
-    cout << "All configurations rendered successfully!" << endl;
 }
 
 int main(int argc, const char * argv[]) {
     
-    // Check for --more mode
-    if (argc > 1 && string(argv[1]) == "--more") {
-        renderMoreTest();
+    // Check for --compare-aa mode
+    if (argc > 1 && string(argv[1]) == "--compare-aa") {
+        int width = 1920;
+        int height = 1080;
+        float fov = 90;
+        
+        sceneDefinition(-20.0f, 0.0f, 0.0f, 5.0f, 0.15f, 0.5f);
+        
+        clock_t t1 = clock();
+        Image imageNoAA(width, height);
+        renderFrame(imageNoAA, width, height, fov, false);
+        t1 = clock() - t1;
+        imageNoAA.writeImage("./result_no_aa.ppm");
+        cout << "No AA rendering time: " << ((double)t1) / CLOCKS_PER_SEC << " seconds" << endl;
+        
+        clock_t t2 = clock();
+        Image imageAA(width, height);
+        renderFrame(imageAA, width, height, fov, true);
+        t2 = clock() - t2;
+        imageAA.writeImage("./result_with_aa.ppm");
+        cout << "With AA rendering time: " << ((double)t2) / CLOCKS_PER_SEC << " seconds" << endl;
+        
+        return 0;
+    }
+    
+    // Check for --compare-dof mode
+    if (argc > 1 && string(argv[1]) == "--compare-dof") {
+        int width = 1920, height = 1080;
+        float fov = 90;
+        sceneDefinition(-20.0f, 0.0f, 0.0f, 5.0f, 0.15f, 0.5f);
+        
+        clock_t t1 = clock();
+        Image imageNoDOF(width, height);
+        renderFrame(imageNoDOF, width, height, fov, true, false);
+        t1 = clock() - t1;
+        imageNoDOF.writeImage("./result_no_dof.ppm");
+        cout << "No DOF rendering time: " << ((double)t1) / CLOCKS_PER_SEC << " seconds" << endl;
+        
+        const float strongAperture = 0.5f;
+        const float focalDistance = 22.5f;
+        clock_t t2 = clock();
+        Image imageDOF(width, height);
+        renderFrame(imageDOF, width, height, fov, true, true, strongAperture, focalDistance);
+        t2 = clock() - t2;
+        imageDOF.writeImage("./result_with_dof.ppm");
+        cout << "With DOF rendering time: " << ((double)t2) / CLOCKS_PER_SEC << " seconds" << endl;
+        
+        return 0;
+    }
+    
+    if (argc > 1 && string(argv[1]) == "--compare-phong-ward") {
+        int width = 1920, height = 1080;
+        float fov = 90;
+        sceneDefinition(-20.0f, 0.0f, 0.0f, 5.0f, 0.15f, 0.5f);
+        
+        forceLightingModel = 0;
+        Image imagePhong(width, height);
+        renderFrame(imagePhong, width, height, fov, true, false);
+        imagePhong.writeImage("./result_phong.ppm");
+        
+        forceLightingModel = 1;
+        Image imageWard(width, height);
+        renderFrame(imageWard, width, height, fov, true, false);
+        imageWard.writeImage("./result_ward.ppm");
+        forceLightingModel = -1;
+        
         return 0;
     }
     
     // Check for --animation mode
     if (argc > 1 && string(argv[1]) == "--animation") {
-        cout << "=== Rendering 12-frame animation (8 elevation + 4 recoil) ===" << endl;
-        
-        // 先加载炮管模型计算长度
         std::vector<glm::vec3> verts;
         std::vector<glm::ivec3> faces;
         loadOBJ("./meshes/barrel.obj", verts, faces);
         
         float barrelLength = 0.0f;
-        const float meshScale = 0.4f;  // 与sceneDefinition中的缩放一致
+        const float meshScale = 0.4f;
         if (!verts.empty()) {
             float minZ = verts[0].z;
             float maxZ = verts[0].z;
@@ -1199,137 +1913,105 @@ int main(int argc, const char * argv[]) {
                 if (v.z < minZ) minZ = v.z;
                 if (v.z > maxZ) maxZ = v.z;
             }
-            barrelLength = (maxZ - minZ) * meshScale;  // 考虑缩放后的长度
+            barrelLength = (maxZ - minZ) * meshScale;
         }
-        float maxRecoil = barrelLength / 20.0f;  // 最大缩退距离为炮管长度的1/20
-        
-        cout << "Barrel length: " << barrelLength << ", Max recoil: " << maxRecoil << endl;
+        float maxRecoil = barrelLength / 20.0f;
         
         int width = 1280;
         int height = 720;
         float fov = 90;
-        int numFrames = 12;  // 抬起8帧 + 缩退4帧
-        int elevationFrames = 8;  // 抬起帧数
-        int recoilFrames = 4;     // 缩退帧数
-        float maxAngle = -20.0f;  // 最大抬起角度（向上）
+        int numFrames = 30;
+        int elevationStartFrame = 15;
+        int firingFrame = 22;
+        int elevationFrames = firingFrame - elevationStartFrame;
+        int recoilFrames = numFrames - firingFrame;
+        float maxAngle = -20.0f;
+        
+        clock_t animationStart = clock();
         
         for (int frame = 0; frame < numFrames; frame++) {
+            clock_t frameStart = clock();
             float elevationAngle = 0.0f;
             float recoilDistance = 0.0f;
             float smokeIntensity = 0.0f;
             
-            if (frame < elevationFrames) {
-                // 前8帧：炮管抬起动画（从0度到-20度）
-                float t = (float)frame / (float)(elevationFrames - 1);  // 0到1
+            if (frame < elevationStartFrame) {
+                elevationAngle = 0.0f;
+                recoilDistance = 0.0f;
+                smokeIntensity = 0.0f;
+            } else if (frame < firingFrame) {
+                int elevationFrameIndex = frame - elevationStartFrame;
+                float t = (float)elevationFrameIndex / (float)(elevationFrames - 1);
                 elevationAngle = maxAngle * t;
-                recoilDistance = 0.0f;  // 不缩退
-                smokeIntensity = 0.0f;  // 无烟雾
+                recoilDistance = 0.0f;
+                smokeIntensity = 0.0f;
             } else {
-                // 后4帧：缩退动画（保持抬起角度为-20度）
-                elevationAngle = maxAngle;  // 保持最大抬起角度
+                elevationAngle = maxAngle;
+                int recoilFrameIndex = frame - firingFrame;
+                float recoilT = (float)recoilFrameIndex / (float)(recoilFrames - 1);
                 
-                // 缩退动画：前30%快速缩退，中间20%保持，后50%缓慢复进
-                float recoilT = (float)(frame - elevationFrames) / (float)(recoilFrames - 1);  // 0到1
+                float smokeT = (float)recoilFrameIndex / (float)(recoilFrames - 1);
+                float smoothT = smokeT * smokeT * (3.0f - 2.0f * smokeT);
+                smokeIntensity = pow(1.0f - smoothT, 1.5f);
+                smokeIntensity = glm::clamp(smokeIntensity, 0.0f, 1.0f);
+                
                 if (recoilT < 0.3f) {
-                    // 快速缩退阶段（0-30%）
-                    float t = recoilT / 0.3f;
-                    recoilDistance = maxRecoil * t;
-                    smokeIntensity = t;  // 烟雾逐渐出现
+                    recoilDistance = maxRecoil * (recoilT / 0.3f);
                 } else if (recoilT < 0.5f) {
-                    // 保持最大缩退（30-50%）
                     recoilDistance = maxRecoil;
-                    smokeIntensity = 1.0f;  // 最大烟雾
                 } else {
-                    // 缓慢复进阶段（50-100%）
                     float t = (recoilT - 0.5f) / 0.5f;
-                    // 使用缓动函数（ease-out）
                     float easeOut = 1.0f - (1.0f - t) * (1.0f - t);
                     recoilDistance = maxRecoil * (1.0f - easeOut);
-                    smokeIntensity = 1.0f - t * 0.7f;  // 烟雾逐渐消散（保留30%）
                 }
             }
             
-            cout << "Rendering frame " << frame + 1 << "/" << numFrames 
-                 << " (angle: " << elevationAngle << " degrees, recoil: " 
-                 << recoilDistance << ", smoke: " << smokeIntensity << ")..." << endl;
-            
-            // 清理之前的场景
             for (size_t i = 0; i < objects.size(); i++) delete objects[i];
             for (size_t i = 0; i < lights.size(); i++) delete lights[i];
             objects.clear();
             lights.clear();
             
-            // 定义当前帧的场景
-            sceneDefinition(elevationAngle, recoilDistance, smokeIntensity);
+            float currentTime = (float)frame * 0.2f;
+            float dynamicWaveHeight = 0.15f + 0.05f * sinf(currentTime * 0.3f);
+            float dynamicWaveFrequency = 0.5f + 0.2f * cosf(currentTime * 0.4f);
             
-            // 渲染当前帧
+            sceneDefinition(elevationAngle, recoilDistance, smokeIntensity, currentTime, 
+                           dynamicWaveHeight, dynamicWaveFrequency);
+            
             Image image(width, height);
-            float s = 2*tan(0.5*fov/180*M_PI)/width;
-            float X = -s * width / 2;
-            float Y = s * height / 2;
-            
-            clock_t frameStart = clock();
-            for(int i = 0; i < width ; i++) {
-                for(int j = 0; j < height ; j++){
-                    float dx = X + i*s + s/2;
-                    float dy = Y - j*s - s/2;
-                    float dz = 1;
-                    
-                    glm::vec3 origin(0, 0, 0);
-                    glm::vec3 direction(dx, dy, dz);
-                    direction = glm::normalize(direction);
-                    
-                    Ray ray(origin, direction);
-                    image.setPixel(i, j, toneMapping(trace_ray(ray)));
-                }
-            }
-            clock_t frameTime = clock() - frameStart;
-            cout << "  Frame " << frame + 1 << " completed in " 
-                 << ((float)frameTime)/CLOCKS_PER_SEC << " seconds" << endl;
-            
-            // 保存当前帧
+            renderFrame(image, width, height, fov, true);
             char filename[256];
             snprintf(filename, sizeof(filename), "./frame_%03d.ppm", frame);
             image.writeImage(filename);
+            
+            clock_t frameEnd = clock();
+            double frameTime = ((double)(frameEnd - frameStart)) / CLOCKS_PER_SEC;
+            cout << "Frame " << frame + 1 << "/" << numFrames << " - " << frameTime << " seconds" << endl;
         }
         
-        cout << "Animation rendering complete! " << numFrames << " frames saved." << endl;
+        clock_t animationEnd = clock();
+        double totalTime = ((double)(animationEnd - animationStart)) / CLOCKS_PER_SEC;
+        cout << "Animation complete: " << numFrames << " frames in " << totalTime << " seconds" << endl;
         return 0;
     }
 
     clock_t t = clock(); // variable for keeping the time of the rendering
 
-    int width = 1280; //width of the image (increase for better quality)
-    int height = 720; // height of the image (increase for better quality)
+    int width = 2560; //width of the image (increase for better quality)
+    int height = 1440; // height of the image (increase for better quality)
     float fov = 90; // field of view
 
-	sceneDefinition(); // Let's define a scene
+	float waterTime = 5.0f;
+	float waveHeight = 0.15f;
+	float waveFrequency = 0.5f;
+	sceneDefinition(-20.0f, 0.0f, 0.0f, waterTime, waveHeight, waveFrequency);
 
-	Image image(width,height); // Create an image where we will store the result
-	vector<glm::vec3> image_values(width*height);
-
-    float s = 2*tan(0.5*fov/180*M_PI)/width;
-    float X = -s * width / 2;
-    float Y = s * height / 2;
-
-    for(int i = 0; i < width ; i++)
-        for(int j = 0; j < height ; j++){
-
-			float dx = X + i*s + s/2;
-            float dy = Y - j*s - s/2;
-            float dz = 1;
-
-			glm::vec3 origin(0, 0, 0);
-            glm::vec3 direction(dx, dy, dz);
-            direction = glm::normalize(direction);
-
-            Ray ray(origin, direction);
-            image.setPixel(i, j, toneMapping(trace_ray(ray)));
-        }
+	Image image(width, height);
+	renderFrame(image, width, height, fov, true);
 	
     t = clock() - t;
-    cout<<"It took " << ((float)t)/CLOCKS_PER_SEC<< " seconds to render the image."<< endl;
-    cout<<"I could render at "<< (float)CLOCKS_PER_SEC/((float)t) << " frames per second."<<endl;
+    double elapsedTime = ((double)t) / CLOCKS_PER_SEC;
+    cout << "Rendering time: " << elapsedTime << " seconds" << endl;
 
 	// Writing the final results of the rendering
 	if (argc == 2){

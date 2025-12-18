@@ -1,5 +1,10 @@
 {
+    "code-runner.executorMap": {
+        "cpp": "cd $dir && g++ -std=c++11 -O2 $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt"
+    },
+    "code-runner.runInTerminal": true,
+    "code-runner.clearPreviousOutput": true,
     "files.associations": {
-        "vector": "cpp"
+        "ostream": "cpp"
     }
 }
